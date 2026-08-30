@@ -175,17 +175,18 @@
   .prow .k{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);flex:none}
   .prow .v{color:var(--ink);text-align:right;max-width:28ch}
   .prow .v i{color:var(--ink-dim)}
-  .live-badge{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mint);border:1px solid rgba(84,217,182,.4);border-radius:999px;padding:7px 14px;margin-bottom:26px}
+  .prow .v.accent-mint{color:var(--mint)}
+  .live-badge{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mint);border:1px solid rgba(84,217,182,.4);border-radius:999px;padding:7px 14px;margin-bottom:16px}
   .live-dot{width:8px;height:8px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 0 rgba(84,217,182,.6);animation:pulse 1.8s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(84,217,182,.55)}70%{box-shadow:0 0 0 12px rgba(84,217,182,0)}100%{box-shadow:0 0 0 0 rgba(84,217,182,0)}}
 
-  .keys{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;justify-content:center}
+  .keys{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;justify-content:center}
   .keychip{display:inline-flex;align-items:baseline;gap:9px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14px;color:var(--ink-dim)}
   .keychip .kd{font-family:var(--mono);font-weight:600;color:var(--amber);font-size:15px}
 
   /* ---------- diagrams ---------- */
   figure.diagram{margin:0;width:100%}
-  figure.diagram svg{width:100%;height:auto;display:block}
+  figure.diagram svg{width:100%;height:auto;display:block;max-height:44vh}
   figcaption{margin-top:18px;font-size:15px;color:var(--ink-faint);line-height:1.45;max-width:72ch}
   .svg-label{font-family:var(--mono);font-size:13px;fill:var(--ink)}
   .svg-sub{font-family:var(--mono);font-size:11px;fill:var(--ink-faint)}
@@ -205,12 +206,10 @@
   .code-file{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-left:10px}
   pre{margin:0;padding:18px 22px;overflow-x:auto;font-family:var(--mono);font-size:clamp(10.5px,1vw,13px);line-height:1.58}
   code{font-family:var(--mono)}
-  .t-key{color:#C792EA}
   .t-fn{color:var(--coral-soft)}
   .t-str{color:var(--mint-soft)}
   .t-com{color:var(--ink-faint);font-style:italic}
   .t-g{color:var(--coral);font-weight:600}
-  .t-dec{color:var(--amber)}
 
   .map-list{display:flex;flex-direction:column}
   .map-row{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:baseline;padding:11px 0;border-bottom:1px solid var(--line-soft)}
