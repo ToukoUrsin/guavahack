@@ -482,8 +482,8 @@ response = <span class="t-fn">generate</span>(PLANNER_PROMPT + context.to_json()
         </div>
         <div class="safe-card">
           <div class="n">Consent, verified</div>
-          <div class="t">Quoted, then checked</div>
-          <div class="d">A new rehearsal needs the caller's own words: the planner must quote them, and the app string-checks that quote against the last utterance.</div>
+          <div class="t">Your words, not the model's</div>
+          <div class="d">A new rehearsal needs the caller's own current words — the app itself checks the last utterance. A clear request or a yes to an offer counts; "maybe", hesitation, or a retraction blocks the scene.</div>
         </div>
         <div class="safe-card">
           <div class="n">Fail-closed keys</div>
