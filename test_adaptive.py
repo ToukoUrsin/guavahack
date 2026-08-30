@@ -9,7 +9,7 @@ from collections import deque
 from collections.abc import Callable
 from unittest.mock import patch
 
-from guava.commands import SendInstructionCommand, SetTaskCommand
+from guava.commands import SendInstructionCommand, SetPersona, SetTaskCommand
 from guava.events import (
     AgentSpeechEvent,
     BotSessionEnded,
@@ -172,7 +172,8 @@ class AdaptiveTests(unittest.TestCase):
         )
         self.jobs.run()
         self.assertEqual(Mode.COACH, self.session.mode)
-        self.assertEqual(scene(), self.session.proposal)
+        self.assertIsNone(self.session.proposal)
+        self.assertEqual([], self.planner.contexts, "Retraction cancels preparation immediately")
 
     def test_retraction_cancels_queued_start(self) -> None:
         self.request(
@@ -212,6 +213,31 @@ class AdaptiveTests(unittest.TestCase):
         )
         self.jobs.run()
         self.assertEqual(Mode.REHEARSAL, self.session.mode)
+
+    def test_direct_practice_request_starts_without_an_extra_action_round_trip(self) -> None:
+        self.planner.decisions.append(
+            Decision(operation=Operation.CREATE, scene=scene(), activity=ACTIVITY)
+        )
+        self.say("Let's rehearse asking my friend for the borrowed gear back.")
+        self.assertTrue(self.session.thinking)
+        self.jobs.run()
+        self.assertEqual(Mode.REHEARSAL, self.session.mode)
+
+    def test_natural_coach_address_restores_voice_before_feedback(self) -> None:
+        for phrase in ("Hey, coach, coach.", "Are we back, Mira?", "Coach, what could I say?"):
+            with self.subTest(phrase=phrase):
+                self.start_scene()
+                self.exchange()
+                self.say(phrase)
+                self.assertEqual(Mode.COACH, self.session.mode)
+                personas = [c for c in self.call._command_queue if isinstance(c, SetPersona)]
+                self.assertEqual(("Mira", "grace"), (personas[-1].agent_name, personas[-1].voice))
+                self.assertIsNotNone(self.session.moment)
+                self.assertFalse(self.session.thinking)
+                suggestion = self.controller.on_action_request(self.call, "Return to the coach")
+                assert suggestion is not None
+                self.controller.on_action(self.call, suggestion.key)
+                self.assertFalse(self.jobs.jobs, "Late action should not undo the direct pause")
 
     def test_spoken_agreement_triggers_switch_without_model_requesting_an_action(self) -> None:
         self.say("A friend has not returned my borrowed gear.")
@@ -569,23 +595,19 @@ class AdaptiveTests(unittest.TestCase):
         self.assertNotIn("synthetic-private-response", " ".join(logs.output))
 
     def test_action_from_one_call_cannot_change_another_call(self) -> None:
+        self.start_scene()
         other = MockCall()
         self.controller.on_start(other)
-        self.say("Let's rehearse")
-        self.planner.decisions.append(
-            Decision(
-                operation=Operation.CREATE,
-                scene=scene(),
-                activity=ACTIVITY,
-                consent_quote="Let's rehearse",
-            )
-        )
-        action = self.controller.on_action_request(self.call, "Start this scene")
+        self.say("Change the friend to use humor instead")
+        corrected = scene("Uses humor")
+        self.planner.decisions.append(Decision(operation=Operation.REVISE, scene=corrected))
+        action = self.controller.on_action_request(self.call, "Adjust the character")
         assert action is not None
         self.controller.on_action(other, action.key)
         self.assertFalse(self.jobs.jobs)
         self.controller.on_action(self.call, action.key)
         self.jobs.run()
+        self.assertEqual(corrected, self.session.scene)
         other_session = self.controller.session(other)
         assert other_session is not None
         self.assertEqual(Mode.REHEARSAL, self.session.mode)

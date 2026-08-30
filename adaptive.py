@@ -44,6 +44,8 @@ scene, or says 'try that moment again', request an action so the Expert can
 adapt the activity. Once the caller has requested or agreed to practice, invoke
 the action immediately using the context already given. 'Yeah', 'yep', and similar
 natural agreements count; do not keep asking if they are ready.
+An explicit request to practice is already permission: no confirmation question
+and no 'how would you like to start?' setup question before switching.
 Choose a fictional name yourself and infer the counterpart's behavior from the
 caller's story. If nothing is specified, use Alex and a neutral, plausible style.
 Do not ask for a name, personality profile, voice, difficulty, or a financial
@@ -71,8 +73,9 @@ when unknown, or reuse the caller's own words.
 OPEN_CONVERSATION = ActivityDefinition(
     objective=(
         "Have a continuous, supportive conversation about what the caller wants to work on. "
-        "Reflect the key point briefly. If the caller describes a situation and mentions "
-        "practicing, offer a rehearsal rather than asking for more background already given. "
+        "Reflect the key point in one short sentence. Once the situation is clear, offer "
+        "a rehearsal, often after the first description, without a series of background questions. "
+        "Name it explicitly: 'Would you like to rehearse that conversation?' "
         "Rehearsal is optional; ask permission once if they have not requested it. Once agreed, use "
         "an action immediately. Infer the fictional name and behavior; do not run a setup "
         "questionnaire or collect a detailed financial inventory."
@@ -139,6 +142,18 @@ def retracts_practice(text: str) -> bool:
 def normalized_speech(text: str) -> str:
     text = unicodedata.normalize("NFKC", text).casefold().replace("’", "'").replace("'", "")
     return " ".join(re.findall(r"\w+", text))
+
+
+def addresses_coach(text: str) -> bool:
+    """Recognize a spoken handoff without matching 'my coach said...' in a scene."""
+    return bool(
+        re.search(
+            r"^(?:(?:hey|hi|okay|ok|please)\s+)*(?:coach|mira)\b"
+            r"|^(?:are we back|can we go back|can you switch back|go back|back)"
+            r"(?: to)?(?: the)? (?:coach|mira)\b",
+            normalized_speech(text),
+        )
+    )
 
 
 def practice_was_offered(context: Context) -> bool:
@@ -373,6 +388,8 @@ class Controller:
                 "Use brief natural replies in character. Do not coach in character, claim to be "
                 "the real person, diagnose, threaten, or simulate abuse. The caller may correct "
                 "your behavior; request an action to apply corrections or replay a moment. "
+                "At the start of a new scene, begin with a short in-character line; do not ask "
+                "for readiness or setup. For a replay, continue from the saved moment. "
                 "Do not evaluate the caller, ask how it felt, or announce returning to coach mode. "
                 "Only the Expert may change your persona. If the caller pauses, wait for that update. "
                 "No turn limit. Explicit role assignment: CALLER = "
@@ -566,6 +583,7 @@ class Controller:
                     "stop rehearsal",
                 }
                 or words.startswith("pause ")
+                or addresses_coach(event.utterance)
                 or retracts_practice(event.utterance)
             ):
                 if (
@@ -575,6 +593,7 @@ class Controller:
                     or session.last_action
                 ):
                     self._pause(session, exclude_latest_caller=True)
+                    session.speech_request_revision = session.user_revision
             elif (
                 session.mode == Mode.COACH
                 and not session.thinking
@@ -582,14 +601,14 @@ class Controller:
             ):
                 context = session.snapshot("Caller replied to an offer", requested=True)
                 agreed, _ = check_consent(context, Operation.CREATE)
-                if practice_was_offered(context) and agreed:
+                if agreed:
                     # Do not depend on the dialog model choosing to request an
-                    # action after an unambiguous agreement to its own offer.
+                    # action after a clear request or agreement to its offer.
                     session.invalidate()
                     session.speech_request_revision = session.user_revision
                     self._queue(
                         session,
-                        "The caller accepted the rehearsal offer. Create it from the existing conversation; infer fictional details without setup questions.",
+                        "The caller requested or accepted a rehearsal. Create it from the existing conversation; infer fictional details without setup questions.",
                         requested=True,
                         hold=True,
                     )
@@ -619,7 +638,7 @@ class Controller:
             if session.speech_request_revision == session.user_revision:
                 return guava.SuggestedAction(
                     key=f"speech_handled_{session.epoch}",
-                    description="This caller's agreement is already being applied by the Expert. Follow its current activity. Do not ask more setup questions or start a duplicate change.",
+                    description="This caller's request is already handled by the Expert. Follow its current activity. Do not ask more setup questions or start a duplicate change.",
                 )
             self._save_moment(session, exclude_latest_caller=True)
             session.invalidate()
@@ -813,7 +832,7 @@ class Controller:
             activity,
             Mode.REHEARSAL,
             replay=replay,
-            announcement=f"I'll play {scene.counterpart_name}, a fictional stand-in based on what you told me. Say 'coach' to pause."
+            announcement=f"I'll play {scene.counterpart_name}, a fictional stand-in. Say 'coach' to pause."
             if op == Operation.CREATE
             else "Let's try that moment with your adjustment.",
         )

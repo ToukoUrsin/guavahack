@@ -247,7 +247,11 @@ def run_conversation(scenario: str) -> int:
                     re.search(r"jok|humor|humour|light.?heart", live.scene.behavior.casefold())
                 )
                 before = len(wire.get_transcript())
-                say("Pause. What could I say here without getting pulled into the joke?")
+                say(
+                    "Hey, coach, coach. What could I say here without getting pulled into the joke?",
+                    announcement="paused",
+                    mode=Mode.COACH,
+                )
                 coaching_speech = agent_segment(before)
                 checks["paused_with_saved_moment"] = (
                     live.mode == Mode.COACH and live.moment is not None
