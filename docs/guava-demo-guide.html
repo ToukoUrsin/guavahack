@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Guava, explained through Second Draft</title>
+  <style>
+    :root { color-scheme: dark; --bg:#000; --surface:#101010; --ink:#fff; --muted:#b5b5b5; --line:#343434; --accent:#b5efbc; --warn:#f2d393; }
+    * { box-sizing:border-box; }
+    html { scroll-padding-top:24px; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    a { color:var(--accent); text-underline-offset:4px; }
+    a:hover { color:#fff; }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:5px; }
+    ::selection { color:#000; background:var(--accent); }
+    .skip { position:absolute; left:18px; top:-100px; background:#000; padding:8px; z-index:10; }
+    .skip:focus { top:10px; }
+    .layout { max-width:1310px; margin:auto; display:grid; grid-template-columns:200px minmax(0,1fr); gap:52px; padding:42px 40px 90px; }
+    aside { align-self:start; position:sticky; top:32px; }
+    .brand { margin:0 0 22px; font-weight:650; }
+    nav a { display:block; padding:6px 0; color:var(--muted); text-decoration:none; font-size:14px; }
+    nav a:hover { color:var(--ink); }
+    .meta { color:var(--muted); font-size:13px; }
+    main { min-width:0; }
+    h1 { font-size:clamp(27px,3.3vw,39px); letter-spacing:-1.2px; line-height:1.17; margin:0 0 18px; font-weight:650; }
+    h2 { font-size:23px; letter-spacing:-.4px; line-height:1.3; margin:0 0 20px; }
+    h2 span { color:var(--accent); font-size:14px; font-weight:500; margin-right:12px; vertical-align:middle; }
+    h3 { font-size:17px; margin:21px 0 9px; }
+    p { margin:0 0 15px; }
+    section { border-top:1px solid var(--line); margin-top:35px; padding-top:29px; }
+    .lead { font-size:20px; line-height:1.55; max-width:780px; }
+    .note { border-left:2px solid var(--accent); padding:0 0 0 17px; margin:20px 0; }
+    .warning { border-color:var(--warn); }
+    .muted, figcaption { color:var(--muted); }
+    code,kbd,pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.88em; }
+    code { color:#d8efdb; overflow-wrap:anywhere; }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--surface); padding:17px 20px; border-left:2px solid var(--line); line-height:1.65; margin:15px 0; }
+    pre code { color:#ededed; }
+    .comment { color:var(--muted); }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+    .two > * { min-width:0; }
+    ul,ol { padding-left:23px; margin:10px 0 18px; }
+    li { margin:6px 0; }
+    table { width:100%; border-collapse:collapse; font-size:14px; margin:17px 0; }
+    th { text-align:left; font-weight:650; }
+    th,td { border-bottom:1px solid var(--line); padding:12px 14px 12px 0; vertical-align:top; }
+    td:last-child,th:last-child { padding-right:0; }
+    .table-scroll { overflow-x:auto; }
+    .table-scroll table { min-width:540px; }
+    figure { margin:22px 0; }
+    .architecture { display:grid; grid-template-columns:1fr 35px 1.4fr 45px 1.2fr; align-items:stretch; margin-bottom:12px; }
+    .arch-node { border-top:2px solid var(--line); background:var(--surface); padding:16px; }
+    .arch-node strong { display:block; font-size:17px; margin-bottom:8px; }
+    .arch-node p { margin:0; font-size:14px; }
+    .arch-node.cloud { border-top-color:var(--accent); }
+    .arrow { align-self:center; text-align:center; font-size:23px; color:var(--accent); }
+    figcaption { font-size:13px; }
+    .legend { display:flex; flex-wrap:wrap; gap:8px 24px; margin:12px 0; font-size:13px; }
+    .label { font-size:12px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase; }
+    .sim { border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:19px 0; margin:22px 0; }
+    .controls { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; }
+    .controls label { font-size:14px; }
+    button,select { font:inherit; font-size:14px; min-height:42px; padding:8px 13px; border:1px solid #555; color:#fff; background:#111; border-radius:0; cursor:pointer; }
+    button:hover,select:hover { border-color:var(--accent); }
+    button:disabled { cursor:default; opacity:.4; }
+    .primary { background:var(--accent); color:#000; border-color:var(--accent); font-weight:650; }
+    .sim-steps { display:flex; flex-wrap:wrap; gap:5px 16px; padding:0; list-style:none; border-bottom:1px solid var(--line); padding-bottom:15px; margin:18px 0; }
+    .sim-steps li { font:13px/1.8 ui-monospace,monospace; color:var(--muted); }
+    .sim-steps [aria-current="step"] { color:var(--accent); text-decoration:underline; text-underline-offset:6px; }
+    .stage { margin:20px 0; }
+    .stage h3 { font-size:21px; margin-top:0; }
+    .stage dl { margin:12px 0 18px; display:grid; grid-template-columns:95px minmax(0,1fr); column-gap:18px; font-size:14px; }
+    .stage dt { color:var(--muted); }
+    .stage dd { margin:0 0 7px; }
+    .quote { font-size:18px; border-left:2px solid var(--line); padding-left:17px; margin:14px 0 19px; }
+    .stage .quote p { margin-bottom:8px; }
+    .progress { color:var(--muted); font-size:13px; margin:14px 0 0; }
+    .sim-actions { display:flex; gap:10px; flex-wrap:wrap; padding-top:8px; }
+    [hidden] { display:none !important; }
+    details { border-bottom:1px solid var(--line); padding:15px 0; }
+    summary { cursor:pointer; font-weight:600; padding-right:8px; }
+    details p { margin:12px 0 0 19px; }
+    .pitch { font-size:19px; line-height:1.7; margin:19px 0; border-left:2px solid var(--accent); padding-left:20px; }
+    footer { border-top:1px solid var(--line); margin-top:35px; padding-top:20px; font-size:13px; color:var(--muted); }
+    @media(max-width:1000px) { .layout { grid-template-columns:160px minmax(0,1fr); gap:28px; padding:30px 24px 65px; } .architecture { grid-template-columns:1fr; } .arrow { padding:3px 0; transform:rotate(90deg); } }
+    @media(max-width:740px) { .layout { display:block; padding:24px 20px 55px; } aside { position:static; margin-bottom:28px; } .brand { margin-bottom:10px; } nav { display:flex; flex-wrap:wrap; gap:2px 17px; } aside .meta { display:none; } .two { grid-template-columns:1fr; gap:0; } h2 { font-size:22px; } .lead { font-size:18px; } .stage dl { grid-template-columns:75px minmax(0,1fr); gap:0 12px; } pre { padding:14px; } }
+    @media print { aside,.controls,.sim-actions,.progress,.skip { display:none !important; } .layout { display:block; padding:0; } .stage[hidden] { display:block !important; } .stage { break-inside:avoid; } body { font-size:11pt; } }
+  </style>
+</head>
+<body>
+<a class="skip" href="#guide">Skip to guide</a>
+<div class="layout">
+  <aside>
+    <p class="brand">Second Draft / Tech notes</p>
+    <nav aria-label="Guide sections">
+      <a href="#big-picture">01 · The big picture</a>
+      <a href="#pieces">02 · The building blocks</a>
+      <a href="#walkthrough">03 · Walk through a call</a>
+      <a href="#code">04 · Read the Python</a>
+      <a href="#state">05 · Fields and memory</a>
+      <a href="#boundaries">06 · What is guaranteed?</a>
+      <a href="#run">07 · Running the demo</a>
+      <a href="#explain">08 · Explain it out loud</a>
+      <a href="#check">09 · Test yourself</a>
+    </nav>
+    <p class="meta" style="margin-top:24px">About 12 minutes.<br>Read → step through → explain.</p>
+  </aside>
+  <main id="guide">
+    <header>
+      <h1>Guava, explained through our demo</h1>
+      <p class="lead">Guava runs the live voice conversation. Our Python code gives it a job, collects structured answers, and decides what happens next.</p>
+      <p>Our demo, <strong>Second Draft</strong>, helps someone rehearse a difficult conversation: describe it, practice with a fictional counterpart, get feedback, and try once more.</p>
+      <p class="meta">Based on the current local <code>main.py</code> and official Guava docs. Checked August 29, 2026. Installed SDK: <code>0.40.1</code>. This page is a teaching simulation, not a connected voice agent.</p>
+    </header>
+
+    <section id="big-picture">
+      <h2><span>01</span>Two systems cooperate during a call</h2>
+      <p>Think of Guava as the person performing the conversation and our code as the director. The director chooses the scene and the goal; the performer handles each spoken turn.</p>
+      <figure>
+        <div class="architecture" role="img" aria-label="Caller exchanges audio with Guava's cloud Dialog System. Guava exchanges events and commands with our Python Expert over a WebSocket.">
+          <div class="arch-node"><strong>Caller</strong><p>Speaks and listens.<br>Local microphone, browser, or phone.</p></div>
+          <div class="arrow" aria-hidden="true">↔</div>
+          <div class="arch-node cloud"><strong>Guava Dialog System</strong><p>Audio → speech recognition → language model response → generated speech.</p></div>
+          <div class="arrow" aria-hidden="true">↔</div>
+          <div class="arch-node"><strong>Our Expert</strong><p><code>main.py</code><br>Tasks, personas, branching, and safety routing.</p></div>
+        </div>
+        <figcaption>Left connection: audio. Right connection: a persistent WebSocket carrying events and instructions. The audio pipeline is a conceptual overview.</figcaption>
+      </figure>
+      <p><strong>“Expert” means our application code.</strong> It does not have to be a second AI model. This demo uses Python handlers, strings, and ordinary conditionals. Guava’s cloud service provides the conversation intelligence.</p>
+      <p>Guava can contact an Expert running on a laptop through its outbound connection; development does not require a public web server. “Local audio” still uses Guava’s cloud. <a href="https://goguava.ai/docs/architecture-overview">Architecture reference</a>.</p>
+      <div class="two">
+        <div><h3>What Guava supplies</h3><p>Speech recognition (STT), conversational response generation, speech synthesis (TTS), and the connection between the caller and our logic.</p></div>
+        <div><h3>What makes this our product</h3><p>The rehearsal workflow, fictional-persona instructions, collected fields, coaching goals, do-over decision, and exit behavior.</p></div>
+      </div>
+      <p class="note"><code>create_agent()</code> creates one <code>guava.Agent</code> when the runtime starts. Mira and Alex are two personas used by that agent within the same call, not two separately deployed agents.</p>
+    </section>
+
+    <section id="pieces">
+      <h2><span>02</span>The six building blocks to learn</h2>
+      <div class="table-scroll"><table>
+        <thead><tr><th scope="col">Building block</th><th scope="col">Plain meaning</th><th scope="col">Our demo</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>Agent</code></th><td>The configured assistant and its registered handlers.</td><td>Second Draft, initially named Mira.</td></tr>
+          <tr><th scope="row"><code>Call</code></th><td>One conversation session. Use it to read answers and send instructions.</td><td>The same call survives coach → roleplay → coach.</td></tr>
+          <tr><th scope="row">Persona</th><td>Who the assistant is playing and which voice it uses.</td><td>Mira / <code>grace</code>, Alex / <code>jack</code>.</td></tr>
+          <tr><th scope="row">Task</th><td>The current goal, checklist, and completion guidance.</td><td><code>intake</code>, <code>rehearsal</code>, <code>debrief</code>…</td></tr>
+          <tr><th scope="row"><code>Field</code></th><td>A structured answer collected through conversation.</td><td><code>difficulty = "realistic"</code>.</td></tr>
+          <tr><th scope="row">Callback</th><td>A Python function invoked when an event happens.</td><td>When intake completes, switch into roleplay.</td></tr>
+        </tbody>
+      </table></div>
+      <p>The important distinction: <strong>a persona describes who to be; a task describes what to accomplish now.</strong> Our code changes both at role transitions. Guava supports changing name, purpose, organization, and voice with <code>set_persona()</code>. <a href="https://goguava.ai/docs/set-persona">Persona reference</a>.</p>
+      <h3>A checklist has three kinds of item</h3>
+      <ul>
+        <li><code>guava.Say("...")</code>: an exact statement to speak, such as the opening disclaimer.</li>
+        <li><code>guava.Field(...)</code>: an answer to collect, such as the caller’s desired outcome.</li>
+        <li>A regular string: an instruction, such as “Offer one concrete improvement.” Guava chooses the wording.</li>
+      </ul>
+      <p class="muted">The checklist structures the conversation without scripting every response. <a href="https://goguava.ai/docs/tasks">Task reference</a>.</p>
+    </section>
+
+    <section id="walkthrough">
+      <h2><span>03</span>Follow one fictional call</h2>
+      <p><strong>Scenario:</strong> a colleague keeps adding work late on Friday. The caller wants to agree on priorities before accepting another task. Use the controls to see how speech, state, and code fit together.</p>
+      <div class="sim">
+        <div class="controls" id="sim-controls" hidden>
+          <label for="route">After feedback</label>
+          <select id="route"><option value="retry">Try once more</option><option value="finish">Finish without a do-over</option></select>
+          <button type="button" id="reset">Restart walkthrough</button>
+        </div>
+        <ol class="sim-steps" aria-label="Normal call sequence">
+          <li data-step="intake">intake →</li><li data-step="rehearsal">rehearsal →</li><li data-step="debrief">debrief →</li><li data-step="do_over">do_over →</li><li data-step="takeaway">takeaway →</li><li data-step="end">end</li>
+        </ol>
+        <p class="meta">Illustrative dialogue, not a recording or a prediction of model output. “Next step” assumes the current task has completed.</p>
+        <div id="stages">
+          <article class="stage" data-stage="intake">
+            <h3>1. Mira collects the setup</h3>
+            <dl><dt>Persona</dt><dd>Mira, coach · voice <code>grace</code></dd><dt>Task</dt><dd><code>intake</code></dd><dt>Entered by</dt><dd><code>on_call_start(call)</code></dd></dl>
+            <div class="quote"><p><strong>Caller:</strong> “A colleague gives me extra work on Friday. I want us to agree what should take priority. Make it realistic.”</p></div>
+            <p>Guava collects <code>scenario</code>, <code>relationship</code>, <code>desired_outcome</code>, <code>difficulty</code>, and <code>roleplay_consent</code>. It is instructed to summarize the setup and ask permission.</p>
+            <pre><code>relationship = "colleague"
+desired_outcome = "Agree on priorities"
+difficulty = "realistic"
+roleplay_consent = "yes"</code></pre>
+            <p><strong>What happens next:</strong> Python requires the collected consent value to equal <code>"yes"</code> and checks the four setup fields are nonempty strings. Otherwise it closes or retries intake. Only then does it switch to <code>rehearsal</code>.</p>
+          </article>
+          <article class="stage" data-stage="rehearsal">
+            <h3>2. Alex becomes the fictional colleague</h3>
+            <dl><dt>Persona</dt><dd>Alex, fictional counterpart · voice <code>jack</code></dd><dt>Task</dt><dd><code>rehearsal</code></dd><dt>Entered by</dt><dd><code>on_intake_complete(call)</code></dd></dl>
+            <div class="quote"><p><strong>Caller:</strong> “I can take that on, but something else will need to move.”</p><p><strong>Alex:</strong> “I was hoping you could fit it in. What would have to move?”</p></div>
+            <p>Our code puts the collected scenario into Alex’s purpose. Guava generates the fictional response. Python is not choosing Alex’s individual sentences.</p>
+            <pre><code>_set_roleplay_persona(call)
+call.set_task("rehearsal", ...)</code></pre>
+            <p><strong>Two different controls:</strong> the three-exchange limit is model guidance, with no Python turn counter. Standalone phrases such as “coach” and “pause” also have a Python speech-handler path that changes the stage to debrief.</p>
+          </article>
+          <article class="stage" data-stage="debrief">
+            <h3>3. Mira gives one useful improvement</h3>
+            <dl><dt>Persona</dt><dd>Mira, coach · voice <code>grace</code></dd><dt>Task</dt><dd><code>debrief</code></dd><dt>Entered by</dt><dd><code>on_rehearsal_complete(call)</code></dd></dl>
+            <div class="quote"><p><strong>Mira:</strong> “You made the trade-off clear. Be specific about the choice: ‘Should I prioritize this request or finish the report first?’ Would you like to try again or finish?”</p></div>
+            <p>Guava follows our feedback checklist: one strength, one improvement, one example sentence. It collects <code>next_step</code> as a multiple-choice field.</p>
+            <pre><code>next_step = call.get_field("next_step", "finish")
+<span class="comment"># Python branches on the collected choice.</span></code></pre>
+            <p><strong>This is a code decision:</strong> “try again” leads to <code>do_over</code>; other values use the finish path. Change “After feedback” above to explore both routes.</p>
+          </article>
+          <article class="stage" data-stage="do_over">
+            <h3>4. Try the improved line once</h3>
+            <dl><dt>Persona</dt><dd>Alex, fictional counterpart · voice <code>jack</code></dd><dt>Task</dt><dd><code>do_over</code></dd><dt>Entered by</dt><dd><code>on_debrief_complete(call)</code> when the choice is “try again”</dd></dl>
+            <div class="quote"><p><strong>Caller:</strong> “Should I prioritize this request or finish the report first?”</p><p><strong>Alex:</strong> “Finish the report first. We can move the new request to Monday.”</p></div>
+            <p>Guava collects <code>revised_line</code> and is instructed to respond once. When this task completes, Python goes directly to <code>takeaway</code>.</p>
+            <pre><code>def on_do_over_complete(call: guava.Call) -&gt; None:
+    if _transition(call, Stage.DO_OVER, Stage.TAKEAWAY):
+        _start_takeaway(call, after_do_over=True)</code></pre>
+            <p>This walkthrough follows normal completion. Pausing during a do-over can return to debrief, where retry can be offered again: there is no global retry counter. The one-response limit inside the task also relies on model guidance.</p>
+          </article>
+          <article class="stage" data-stage="takeaway">
+            <h3>5. Leave with one sentence</h3>
+            <dl><dt>Persona</dt><dd>Mira, coach · voice <code>grace</code></dd><dt>Task</dt><dd><code>takeaway</code></dd><dt>Entered by</dt><dd><code>_start_takeaway(call, ...)</code></dd></dl>
+            <div class="quote"><p><strong>Caller:</strong> “Ask which task matters more instead of just saying yes.”</p></div>
+            <p>Both normal paths converge here: finish after feedback, or finish after a do-over. Guava collects the caller’s own takeaway in an optional sensitive text field; the caller can decline.</p>
+            <pre><code>guava.Field(
+    key="takeaway",
+    field_type="text",
+    sensitive=True,
+    required=False,
+    ...
+)</code></pre>
+            <p>Once Guava reports the takeaway task complete, the registered handler verifies the stage, marks it ended, and asks Guava to wrap up and hang up.</p>
+          </article>
+          <article class="stage" data-stage="end">
+            <h3>6. Close the call</h3>
+            <dl><dt>Persona</dt><dd>Mira, coach</dd><dt>Action</dt><dd><code>call.hangup(...)</code></dd><dt>Entered by</dt><dd><code>on_takeaway_complete(call)</code></dd></dl>
+            <div class="quote"><p><strong>Mira:</strong> “Keep that sentence with you. This was practice, not a prediction of how your colleague will respond.”</p></div>
+            <p>In the installed SDK, <code>hangup()</code> queues a natural-language wrap-up instruction. It does not synchronously disconnect the call at that Python line.</p>
+            <p>Our <code>_close()</code> helper first sets the application stage to <code>ended</code> to suppress duplicate actions. The separate <code>on_session_end</code> callback logs the termination reason when the session actually ends. Application state, a queued hangup instruction, and an ended call are different things.</p>
+          </article>
+          <article class="stage" data-stage="safety_exit">
+            <h3>Alternate route: leave the rehearsal</h3>
+            <dl><dt>Persona</dt><dd>Mira, coach · voice <code>grace</code></dd><dt>Task</dt><dd><code>safety_exit</code></dd><dt>Entered by</dt><dd><code>on_caller_speech(call, event)</code> after a phrase match</dd></dl>
+            <p>Python normalizes the transcribed utterance and checks it against a fixed list of explicit crisis phrases. A match changes the application stage to <code>safety_exit</code>, restores Mira, and assigns the exit task. An escalation event can also enter this route.</p>
+            <pre><code>call.set_variable(STAGE_KEY, Stage.SAFETY_EXIT.value)
+_set_coach_persona(call)
+call.set_task("safety_exit", ...)</code></pre>
+            <p>The task tells Guava to stop roleplay and give human-support information. It then stays available for resource clarification without returning to roleplay; it does not automatically hang up. This implementation does not place an emergency call or transfer the caller.</p>
+            <p class="note warning">The phrase check is a narrow backstop, not a clinical assessment. It can miss paraphrases and speech-recognition errors, or match quoted and negated statements. This simulator only illustrates the intended route.</p>
+          </article>
+        </div>
+        <div class="sim-actions" id="sim-actions" hidden>
+          <button type="button" id="prev">← Previous</button>
+          <button type="button" id="next" class="primary">Next step →</button>
+          <button type="button" id="safety">Explore safety exit</button>
+        </div>
+        <p class="progress" id="progress" role="status" aria-live="polite"></p>
+        <noscript><p>JavaScript is off. All walkthrough stages are shown above in reading order.</p></noscript>
+      </div>
+    </section>
+
+    <section id="code">
+      <h2><span>04</span>Read the Python as events and reactions</h2>
+      <p>You do not need to follow every line. Start in <code>create_agent()</code>: it registers the functions that react to events. Guava also supports decorator syntax, but our current code registers handlers explicitly.</p>
+      <pre><code><span class="comment"># Registration inside create_agent().</span>
+agent.on_call_start(on_call_start)
+agent.on_caller_speech(on_caller_speech)
+agent.on_task_complete("intake")(on_intake_complete)
+
+<span class="comment"># A complete guarded transition from our code.</span>
+def on_rehearsal_complete(call: guava.Call) -&gt; None:
+    if not _transition(call, Stage.REHEARSAL, Stage.DEBRIEF):
+        return
+    _start_debrief(call)</code></pre>
+      <ol>
+        <li><strong>Register:</strong> <code>on_task_complete("intake")</code> connects that task ID to the intake-completion function.</li>
+        <li><strong>Receive:</strong> Guava reports that the task completed and the SDK invokes the function with the current <code>Call</code>.</li>
+        <li><strong>React:</strong> Python checks the expected stage and any required fields, then queues a persona change and the next task.</li>
+        <li><strong>Continue:</strong> Guava conducts that stage. The Python function does not sit waiting for each spoken answer.</li>
+      </ol>
+      <p>That loop is the architecture of our app: <strong>event → Python decision → command → conversation → next event</strong>. <code>Stage</code> names the allowed stages; <code>_transition()</code> rejects callbacks that do not match the expected current stage. In SDK <code>0.40.1</code>, task and persona methods queue <code>SetTaskCommand</code> and <code>SetPersona</code> objects.</p>
+      <h3>Why use several tasks?</h3>
+      <p>“Collect the scenario” and “act like a colleague” are different jobs. Assigning a focused task at each stage makes our intended sequence readable and gives Python explicit points to branch. It does not make the model’s behavior inside a task fully deterministic.</p>
+    </section>
+
+    <section id="state">
+      <h2><span>05</span>Spoken answers become usable state</h2>
+      <div class="two">
+        <div><h3>Fields come from the caller</h3><p><code>scenario</code>, <code>relationship</code>, <code>desired_outcome</code>, <code>difficulty</code>, <code>roleplay_consent</code>, <code>next_step</code>, <code>revised_line</code>, and <code>takeaway</code>.</p><p>For example, Guava collects a choice from “gentle”, “realistic”, or “challenging”; our code reads it with <code>call.get_field("difficulty")</code>.</p></div>
+        <div><h3>Variables track application state</h3><p>Our code writes the <code>second_draft_stage</code> variable through <code>STAGE_KEY</code>. Its values include <code>intake</code>, <code>rehearsal</code>, <code>safety_exit</code>, and <code>ended</code>.</p><p>The caller does not supply the stage. Python uses it to decide which transitions are valid and reject late or duplicate callbacks.</p></div>
+      </div>
+      <p>Guava’s <code>Field</code> API describes how to collect and validate an answer. A field’s <code>question</code> guides phrasing; use <code>Say</code> when exact wording is required. <a href="https://goguava.ai/docs/field">Field reference</a>.</p>
+      <p class="note">These are values associated with the call, not proof of durable product memory. Our application has no database, RAG knowledge base, CRM integration, or cross-session learning code. It does not train a model during the rehearsal.</p>
+      <h3>What <code>sensitive=True</code> actually means</h3>
+      <p>We flag the scenario, desired outcome, revised line, and takeaway. Guava documents best-effort redaction of sensitive values from stored transcripts and recordings. It explicitly warns that this flag does <strong>not</strong> guarantee exclusion from diagnostic or debug data. <a href="https://goguava.ai/docs/field#sensitive-fields">Sensitive-field documentation</a>.</p>
+      <p>Our code also disables SDK telemetry before importing Guava and packages scenario values as bounded JSON labelled as untrusted data. These measures do not establish cloud retention policy or perfect prompt-injection resistance. Values still enter the roleplay purpose. Use fictional details and do not promise that nothing is stored.</p>
+    </section>
+
+    <section id="boundaries">
+      <h2><span>06</span>Separate code rules from model instructions</h2>
+      <div class="table-scroll"><table>
+        <thead><tr><th scope="col">Behavior</th><th scope="col">How it works here</th><th scope="col">What we can claim</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Choose retry or finish</th><td>A Python <code>if</code> reads <code>next_step</code>.</td><td>Deterministic routing once that value is available.</td></tr>
+          <tr><th scope="row">One do-over in the normal route</th><td>Completion goes from <code>do_over</code> to <code>takeaway</code>.</td><td>A pause can return to debrief and allow another retry. There is no global retry cap.</td></tr>
+          <tr><th scope="row">Three exchanges</th><td>Checklist and completion-criteria text.</td><td>Intended model behavior. No Python turn counter.</td></tr>
+          <tr><th scope="row">“Coach” pauses; “end call” stops</th><td>Python matches normalized standalone phrases on speech events.</td><td>Explicit routing for those phrases; transcription, variants, and response timing need live tests.</td></tr>
+          <tr><th scope="row">Wait for consent</th><td>Python requires <code>roleplay_consent == "yes"</code> and nonempty setup fields.</td><td>A code gate on collected values. Correct extraction of spoken consent still needs live verification.</td></tr>
+          <tr><th scope="row">Explicit crisis phrase</th><td>Python substring matching on the transcript.</td><td>A match queues an exit task. Not comprehensive detection or an emergency service.</td></tr>
+          <tr><th scope="row">Finish the call</th><td><code>hangup()</code> sends closing instructions.</td><td>A requested wrap-up. Verify the actual end event separately.</td></tr>
+        </tbody>
+      </table></div>
+      <p>Stage checks reject ordinary task-completion callbacks after a safety exit. The exit remains active for resource clarification; it does not resume rehearsal. An explicit end request can still close the call. These are application rules, not proof that the live service responds instantly.</p>
+      <h3>What has been verified for this guide</h3>
+      <p><strong>19 existing offline tests passed</strong> using <code>guava.testing.MockCall</code>. They cover selected transitions, consent and missing-data gates, sensitive flags, pause/end controls, safety-state guards, and channel validation. One test feeds events through the installed SDK dispatcher with client creation mocked. None makes Guava conduct a real conversation.</p>
+      <p class="muted">No live voice session, phone call, deployment, voice-switch quality, redaction result, or real-time safety behavior was verified while making this guide. A <code>0</code>/<code>9</code> keypad handler is registered. In the installed SDK, <code>accept_dtmf=False</code> disables numeric-field DTMF acceptance separately; it does not unregister that handler. Live keypad delivery remains unverified.</p>
+    </section>
+
+    <section id="run">
+      <h2><span>07</span>One agent, four ways to connect</h2>
+      <p><code>run()</code> reads <code>GUAVA_CHANNEL</code>. If it is absent, our code selects <code>local</code>. These commands are for you to run when ready; this guide never opens your microphone or calls anyone.</p>
+      <div class="table-scroll"><table>
+        <thead><tr><th scope="col">Mode</th><th scope="col">Command</th><th scope="col">What it exercises</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Local audio</th><td><code>guava run .</code></td><td><code>agent.call_local()</code>: microphone and speaker connected to Guava.</td></tr>
+          <tr><th scope="row">Terminal chat</th><td><code>GUAVA_CHANNEL=chat guava run .</code></td><td><code>agent.chat()</code>: conversational logic without testing the audio path.</td></tr>
+          <tr><th scope="row">Browser audio</th><td><code>GUAVA_CHANNEL=webrtc guava run .</code></td><td><code>agent.listen_webrtc()</code>: waits for a WebRTC connection.</td></tr>
+          <tr><th scope="row">Inbound phone</th><td><code>GUAVA_CHANNEL=phone guava run .</code><br><small>Requires <code>GUAVA_AGENT_NUMBER</code> already set in the environment.</small></td><td><code>agent.listen_phone(number)</code>: listens on the configured Guava number; it does not dial someone.</td></tr>
+        </tbody>
+      </table></div>
+      <p>A phone listener needs an appropriately configured number and authenticated environment. Our code checks E.164-style number syntax before creating the authenticated client; that does not provision a number or prove ownership and routing. <a href="https://goguava.ai/docs/agent">Guava channel reference</a>.</p>
+      <div class="two">
+        <div><h3>The small stack</h3><ul><li><strong>Python:</strong> our application logic. Local environment checked: 3.12.13.</li><li><strong>guava-sdk:</strong> Agent, Call, tasks, fields, and events.</li><li><strong>uv:</strong> dependency and Python environment management.</li><li><strong>Guava CLI:</strong> project tooling, including the <code>guava run</code> entrypoint.</li></ul></div>
+        <div><h3>Files worth opening</h3><ul><li><code>main.py</code>: behavior and channel choice.</li><li><code>test_main.py</code>: focused mock-based checks.</li><li><code>pyproject.toml</code> + <code>uv.lock</code>: dependencies and resolved versions.</li><li><code>guava.toml</code>: project/hosting configuration; its Python 3.14 image is distinct from the local interpreter. Config is not proof of deployment.</li></ul></div>
+      </div>
+      <h3>A useful rehearsal before presenting</h3>
+      <ol>
+        <li>Use the fictional Friday-work scenario. Check that the setup is understood.</li>
+        <li>Listen for the switch from Mira to Alex. Say “coach” and check the actual response.</li>
+        <li>Ask for one do-over, give a revised line, and confirm it reaches the takeaway and ends.</li>
+        <li>Repeat using the finish path. Verify the intended presentation channel separately, especially the real phone path.</li>
+      </ol>
+      <p>Mock tests, chat, local audio, and a real phone call establish different things. The HTML walkthrough establishes none of those live connection states.</p>
+    </section>
+
+    <section id="explain">
+      <h2><span>08</span>Explain the tech in 30 seconds</h2>
+      <blockquote class="pitch">“Second Draft lets you rehearse a difficult conversation by voice. Guava handles listening and speaking. Our Python Expert runs a sequence of tasks: collect the setup, switch into a fictional counterpart, return as a coach, and offer one do-over. We change the persona and voice inside the same call, and use structured fields and callbacks to decide what happens next.”</blockquote>
+      <details><summary>“Is this just a prompt?”</summary><p>There are prompts inside it, but also a guarded stage machine, structured answers, a consent gate, persona changes, retry/finish branching, and pause/end/exit handlers. The model still decides much of the turn-by-turn behavior.</p></details>
+      <details><summary>“Where is the AI model?”</summary><p>Guava’s hosted Dialog System generates the conversation. Our code does not choose or host a separate language model, and the exact underlying model is not identified by this repository.</p></details>
+      <details><summary>“What would you improve next?”</summary><p>First prove the complete live call. Then, if strict limits matter, add turn counting and a retry budget that also covers pauses. Test pause-phrase variants, actual voice switching, and keypad configuration. These are possible follow-ups, not changes made by this guide.</p></details>
+    </section>
+
+    <section id="check">
+      <h2><span>09</span>Check whether it clicked</h2>
+      <p>Answer each question out loud before opening it.</p>
+      <details><summary>1. Who writes Alex’s next spoken sentence?</summary><p>Guava’s Dialog System generates it using the active persona, task, and conversation context. Our Python code supplies the setup and instructions, not each sentence.</p></details>
+      <details><summary>2. What is the difference between a field and a variable here?</summary><p>A field captures a caller answer, such as <code>next_step</code>. A variable records program state, such as <code>second_draft_stage</code>. Neither is a database in this application.</p></details>
+      <details><summary>3. If 19 offline tests pass, have we proved “coach” pauses a phone call?</summary><p>No. The tests prove routing when a speech event with matching text reaches our code. They do not verify microphone capture, transcription, delivery of the event, or the live agent’s response timing.</p></details>
+      <details><summary>4. Does the switch to Alex start a new agent or a new call?</summary><p>Neither. <code>set_persona()</code> changes identity, purpose, and voice on the current call. <code>set_task()</code> changes its current job.</p></details>
+      <details><summary>5. Where would a future database save belong?</summary><p>A task-completion handler gives a clear point to act on collected fields, for example after the takeaway. But saving rehearsal content would require deliberate consent, access, and retention design. It is not present now.</p></details>
+      <p class="note">If you can explain <strong>persona → task → field → callback</strong> using the Friday-work example, you understand the core of our Guava demo.</p>
+    </section>
+
+    <footer>
+      <p><strong>Evidence:</strong> local working tree based on commit <code>0b36f6c</code>, including existing uncommitted demo changes; <code>main.py</code>, <code>test_main.py</code>, <code>README.md</code>, configuration, and installed SDK source. Reviewed source SHA-256 prefixes: main <code>00734221768a</code>, tests <code>82584db77636</code>. This is a snapshot, not a live reflection of later edits.</p>
+      <p><strong>Official references:</strong> <a href="https://goguava.ai/docs/architecture-overview">architecture</a> · <a href="https://goguava.ai/docs/agent">Agent and channels</a> · <a href="https://goguava.ai/docs/tasks">tasks</a> · <a href="https://goguava.ai/docs/field">fields and sensitivity</a> · <a href="https://goguava.ai/docs/set-persona">personas</a>.</p>
+      <p>Standalone local lesson. No external scripts, analytics, storage, network calls, microphone access, or live Guava connection. Links open only when selected.</p>
+    </footer>
+  </main>
+</div>
+<script>
+  (() => {
+    const stages = Array.from(document.querySelectorAll('[data-stage]'));
+    const markers = Array.from(document.querySelectorAll('[data-step]'));
+    const route = document.getElementById('route');
+    const previous = document.getElementById('prev');
+    const next = document.getElementById('next');
+    const safety = document.getElementById('safety');
+    const progress = document.getElementById('progress');
+    let current = 'intake';
+    let beforeSafety = 'intake';
+    const path = () => route.value === 'retry'
+      ? ['intake', 'rehearsal', 'debrief', 'do_over', 'takeaway', 'end']
+      : ['intake', 'rehearsal', 'debrief', 'takeaway', 'end'];
+    function render() {
+      const sequence = path();
+      const index = sequence.indexOf(current);
+      stages.forEach(stage => { stage.hidden = stage.dataset.stage !== current; });
+      markers.forEach(marker => {
+        const key = marker.dataset.step;
+        marker.hidden = !sequence.includes(key);
+        if (key === current) marker.setAttribute('aria-current', 'step');
+        else marker.removeAttribute('aria-current');
+      });
+      previous.disabled = index === 0;
+      previous.textContent = current === 'safety_exit' ? '← Return to walkthrough' : '← Previous';
+      next.disabled = current === 'end' || current === 'safety_exit';
+      safety.disabled = current === 'end' || current === 'safety_exit';
+      progress.textContent = current === 'safety_exit'
+        ? 'Alternate safety route. Returning here only navigates the lesson; the live exit does not return to rehearsal.'
+        : 'Step ' + (index + 1) + ' of ' + sequence.length + ' · ' + current + ' · ' + (route.value === 'retry' ? 'one do-over' : 'finish after feedback');
+    }
+    previous.addEventListener('click', () => {
+      if (current === 'safety_exit') current = path().includes(beforeSafety) ? beforeSafety : 'debrief';
+      else current = path()[Math.max(0, path().indexOf(current) - 1)];
+      render();
+    });
+    next.addEventListener('click', () => {
+      const sequence = path();
+      current = sequence[Math.min(sequence.length - 1, sequence.indexOf(current) + 1)];
+      render();
+    });
+    safety.addEventListener('click', () => { beforeSafety = current; current = 'safety_exit'; render(); });
+    route.addEventListener('change', () => { if (current === 'do_over' && route.value === 'finish') current = 'takeaway'; render(); });
+    document.getElementById('reset').addEventListener('click', () => { current = 'intake'; render(); });
+    document.getElementById('sim-controls').hidden = false;
+    document.getElementById('sim-actions').hidden = false;
+    render();
+  })();
+</script>
+</body>
+</html>
