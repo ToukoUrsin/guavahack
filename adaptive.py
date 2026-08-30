@@ -73,7 +73,8 @@ when unknown, or reuse the caller's own words.
 OPEN_CONVERSATION = ActivityDefinition(
     objective=(
         "Have a continuous, supportive conversation about what the caller wants to work on. "
-        "Reflect the key point in one short sentence. Once the situation is clear, offer "
+        "If the caller asks to practice, do not offer it again or ask for confirmation; "
+        "the Expert is starting the scene. Otherwise reflect the key point briefly and offer "
         "a rehearsal, often after the first description, without a series of background questions. "
         "Name it explicitly: 'Would you like to rehearse that conversation?' "
         "Rehearsal is optional; ask permission once if they have not requested it. Once agreed, use "

@@ -192,6 +192,18 @@ def run_conversation(scenario: str) -> int:
             checks["resource_spoken"] = bool(
                 re.search(r"988|nine eight eight", wire.get_transcript().casefold())
             )
+        elif scenario == "direct":
+            before = len(wire.get_transcript())
+            say(
+                "I lent my friend climbing gear last month. Let's rehearse asking for it back by Friday.",
+                announcement="i'll play",
+                mode=Mode.REHEARSAL,
+            )
+            prelude = agent_segment(before).casefold().split("i'll play")[0]
+            checks["direct_request_started_scene"] = live.mode == Mode.REHEARSAL
+            checks["no_second_confirmation"] = not bool(
+                re.search(r"would you like to|do you want to|are you ready|shall we", prelude)
+            )
         elif scenario == "natural":
             say(
                 "My partner is upset that I don't help much with housework. I work long hours and pay most household expenses, and I feel that contribution is overlooked. I want to practice discussing a fairer balance without another argument."
@@ -335,7 +347,7 @@ def run_bounded(scenario: str) -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("scenario", choices=["planner", "adaptive", "natural", "safety"])
+    parser.add_argument("scenario", choices=["planner", "adaptive", "natural", "direct", "safety"])
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
