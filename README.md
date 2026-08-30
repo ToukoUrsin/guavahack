@@ -6,6 +6,9 @@ correct the character halfway through, pause for coaching, and replay that momen
 There is no prescribed intake form, number of exchanges, retry limit, or mandatory
 takeaway. Staying in conversation is a valid choice.
 
+Read the [one-page call explanation](docs/how-the-call-works.html) for the coach,
+character switch, shared context, and controls.
+
 The introduction is brief: "Hi, I'm Mira, an AI therapy companion. What's on your
 mind?" Fictional names and behavior are inferred from the conversation, not
 collected through a character-setup questionnaire. A missing essential situation

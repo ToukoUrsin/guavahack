@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Second Draft: how the call works</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #000; color: #fff; font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 760px; margin: auto; padding: 28px 22px 40px; }
+    h1 { margin: 0 0 8px; font-size: 27px; line-height: 1.2; }
+    h2 { margin: 0 0 6px; font-size: 18px; }
+    p { margin: 0 0 12px; }
+    .flow { margin: 20px 0; font-weight: 650; }
+    ol { margin: 0; padding-left: 24px; }
+    li { margin-bottom: 18px; padding-left: 4px; }
+    li p { margin: 0; }
+    section, footer { margin-top: 22px; padding-top: 18px; border-top: 1px solid #333; }
+    code, kbd { font: 0.92em ui-monospace, monospace; overflow-wrap: anywhere; }
+    a { color: #fff; text-underline-offset: 3px; }
+    a:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+    footer { font-size: 14px; }
+    @media (max-width: 420px) { main { padding: 22px 16px 32px; } h1 { font-size: 24px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Second Draft: how the call works</h1>
+    <p>Call <strong>+1 (484) 740-8902</strong>. One continuous conversation, with two roles.</p>
+    <p class="flow" aria-label="Mira, then a fictional character, then back to Mira">Mira → Fictional character → Mira</p>
+
+    <ol>
+      <li>
+        <h2>Talk to Mira</h2>
+        <p>Describe the conversation you want help with. Mira listens as your AI coach.</p>
+      </li>
+      <li>
+        <h2>Say “Let’s practise”</h2>
+        <p>The reasoning agent uses your story to create a fictional name, situation, personality and goal. No extra confirmation or character questionnaire.</p>
+      </li>
+      <li>
+        <h2>The character starts</h2>
+        <p>Our controller validates the scene. Guava’s <code>set_persona()</code> changes the role and voice; <code>set_task()</code> sets the activity; <code>add_info()</code> supplies context. It is still the same call.</p>
+      </li>
+      <li>
+        <h2>Say “Hey coach”</h2>
+        <p>The scene pauses, pending changes are cancelled, and Mira’s persona and voice return. She can discuss the exchange you just had, using the conversation context and saved moment.</p>
+      </li>
+      <li>
+        <h2>Adjust, retry or finish</h2>
+        <p>Say “They’d joke instead” to adjust the character, “Try that moment again” to replay, or “End call.” You can also just keep talking with Mira.</p>
+      </li>
+    </ol>
+
+    <section aria-labelledby="roles">
+      <h2 id="roles">Who does what?</h2>
+      <p><strong>Guava</strong> handles the phone, listening and speaking. The <strong>reasoning agent</strong> plans scene changes. Our <strong>controller</strong> applies them and prioritizes pause/end commands. Ordinary replies do not need a new planning request.</p>
+    </section>
+
+    <section aria-labelledby="keys">
+      <h2 id="keys">Keypad shortcuts</h2>
+      <p><kbd>0</kbd> Pause · <kbd>1</kbd> Replay a saved moment from coaching · <kbd>9</kbd> End · <kbd>*</kbd> Help</p>
+    </section>
+
+    <footer>
+      <p>The planner uses recent turns plus the saved scene and exchange, not unlimited history. Characters are fictional. This is not licensed therapy. Guava may retain call records.</p>
+      <a href="https://github.com/ToukoUrsin/guavahack">Project source</a>
+    </footer>
+  </main>
+</body>
+</html>
