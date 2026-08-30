@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 dependencies = ["guava-sdk", "pydantic>=2", "typing_extensions"]
 
 [dependency-groups]
-dev = ["ruff", "ty"]
+dev = ["ruff", "ty", "pytest"]
 
 [tool.ruff]
 line-length = 100

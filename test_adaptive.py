@@ -220,6 +220,43 @@ class AdaptiveTests(unittest.TestCase):
         self.assertFalse(self.jobs.jobs)
         self.assertEqual(Mode.COACH, self.session.mode)
 
+    def test_keypad_pause_replay_and_repeated_keypresses_share_the_state_guards(self) -> None:
+        self.start_scene()
+        self.exchange()
+        self.controller.on_dtmf(self.call, DTMFPressedEvent(digit="0"))
+        self.assertEqual(Mode.COACH, self.session.mode)
+        self.planner.decisions.append(Decision(operation=Operation.REPLAY))
+        self.controller.on_dtmf(self.call, DTMFPressedEvent(digit="1"))
+        work = self.session.queued
+        self.controller.on_dtmf(self.call, DTMFPressedEvent(digit="1"))
+        self.assertIs(work, self.session.queued)
+        self.jobs.run()
+        self.assertEqual(Mode.REHEARSAL, self.session.mode)
+        self.controller.on_dtmf(self.call, DTMFPressedEvent(digit="9"))
+        self.assertEqual(Mode.ENDED, self.session.mode)
+
+    def test_keypad_help_does_not_change_the_activity(self) -> None:
+        task = self.session.active_task
+        self.controller.on_dtmf(self.call, DTMFPressedEvent(digit="*"))
+        self.assertEqual(task, self.session.active_task)
+        self.assertEqual(Mode.COACH, self.session.mode)
+        self.assertFalse(self.jobs.jobs)
+
+    def test_keypad_zero_cancels_an_inflight_scene_start(self) -> None:
+        self.request(
+            "Let's rehearse",
+            Decision(
+                operation=Operation.CREATE,
+                scene=scene(),
+                activity=ACTIVITY,
+                consent_quote="Let's rehearse",
+            ),
+        )
+        self.controller.on_dtmf(self.call, DTMFPressedEvent(digit="0"))
+        self.jobs.run()
+        self.assertEqual(Mode.COACH, self.session.mode)
+        self.assertIsNone(self.session.scene)
+
     def test_correction_keeps_scene_facts_and_the_relevant_exchange(self) -> None:
         self.start_scene()
         self.exchange()

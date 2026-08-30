@@ -21,6 +21,7 @@ from guava.events import (
 )
 
 from adaptive_models import ActivityDefinition, Decision, Mode, Operation, SceneDefinition
+from keypad import KeypadAction, route_key
 from reasoner import Context, Moment, Planner, Turn
 
 logger = logging.getLogger("second_draft")
@@ -253,11 +254,16 @@ class Controller:
         with self.sessions_lock:
             self.sessions[call.id] = session
         with session.lock:
+            phone_hint = (
+                " Press star for keypad controls." if call.call_info.call_type == "pstn" else ""
+            )
             self._install(
                 session,
                 OPEN_CONVERSATION,
                 Mode.COACH,
-                announcement="Hi, I'm Mira, an AI conversation-practice coach. This isn't therapy. Skip names or identifying details. What's on your mind?",
+                announcement="Hi, I'm Mira, an AI conversation-practice coach. This isn't therapy. Skip names or identifying details."
+                + phone_hint
+                + " What's on your mind?",
             )
 
     def _install(
@@ -670,15 +676,26 @@ class Controller:
         return "Answer as the coach using the existing conversation. Offer a concrete option if asked, without inventing facts. If a new exercise would help, offer it and request an action only after the caller wants it."
 
     def on_dtmf(self, call: guava.Call, event: DTMFPressedEvent) -> None:
-        # Victor owns the additional keypad router. Keep these existing controls
-        # independent of activity names; integration can call the same intents.
         session = self.session(call)
         if session:
             with session.lock:
-                if event.digit == "9":
-                    self._finish(session)
-                elif event.digit == "0":
+                action = route_key(session.mode.value, event.digit)
+                if event.digit == "0" and session.thinking and session.mode == Mode.COACH:
+                    # Preparation temporarily uses the coach voice. Zero still
+                    # cancels that pending scene before its result can apply.
                     self._pause(session)
+                elif action == KeypadAction.END:
+                    self._finish(session)
+                elif action == KeypadAction.PAUSE:
+                    self._pause(session)
+                elif action == KeypadAction.RETRY and not session.thinking:
+                    self.replay(call)
+                elif action == KeypadAction.HELP:
+                    if session.mode == Mode.SAFETY:
+                        instruction = "Briefly explain that 9 ends the call. Rehearsal controls are unavailable in human-support mode. Do not resume the scene."
+                    else:
+                        instruction = "Briefly explain: 0 pauses a scene and returns to the coach; 1 replays a saved moment while with the coach; 9 ends the call; star repeats these controls. Then continue the current conversation without resetting it."
+                    call.send_instruction(instruction)
 
     def replay(self, call: guava.Call) -> None:
         """Keypad-intent integration point; uses the same planner and safeguards."""

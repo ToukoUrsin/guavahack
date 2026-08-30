@@ -56,16 +56,19 @@ Current controls:
 - Say **coach**, **pause**, or **stop roleplay** to return to coaching.
 - Say **end call** or press **9** to hang up.
 - Press **0** to leave the scene and return to the coach.
+- Press **1** while with the coach to replay a saved moment.
+- Press **\*** for the controls, without resetting the current activity.
 - Ask to change the character or **try that moment again** through speech.
 
-Victor owns the proposed keypad `1 = replay` and `* = help` extension. Those keys
-are not wired here yet. `Controller.replay()` is the integration point; keypad
-actions should be intents, not depend on a fixed activity sequence.
+Victor's pure keypad router is in `keypad.py`; the controller applies its intents
+with the same consent, saved-moment, cancellation, and safety guards as speech.
+Repeated replay presses cannot start concurrent planning, and `0` can cancel a
+scene still being prepared. Safety mode permits only help and ending the call.
 
 ## Verify
 
 ```bash
-uv run python -m unittest -v
+uv run pytest
 uv run ruff check .
 uv run ty check .
 ```
@@ -99,7 +102,7 @@ Deploy a runtime-only bundle so local tests and unrelated documents stay local:
 
 ```bash
 demo_bundle=$(mktemp -d)
-cp main.py adaptive.py adaptive_models.py reasoner.py pyproject.toml uv.lock guava.toml "$demo_bundle/"
+cp main.py adaptive.py adaptive_models.py reasoner.py keypad.py pyproject.toml uv.lock guava.toml "$demo_bundle/"
 guava deploy up "$demo_bundle"
 guava deploy status .
 guava deploy down .
@@ -115,7 +118,7 @@ deployment after the demo instead of leaving an unattended phone service running
 
 Use an unfamiliar, made-up situation. Stay in coaching first, then request a
 rehearsal. Correct how the counterpart behaves, pause and ask for a useful phrase,
-then replay that same moment with the correction intact. Test `0` and `9` from
+then replay that same moment with the correction intact. Test `0`, `1`, `*`, and `9` from
 a real phone. A genuine PSTN call is a separate eligibility gate from hosted
 synthetic tests. See [EVENT.md](EVENT.md) for the event rules.
 
