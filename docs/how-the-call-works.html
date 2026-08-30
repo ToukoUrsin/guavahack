@@ -8,64 +8,123 @@
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; background: #000; color: #fff; font: 16px/1.5 system-ui, sans-serif; }
-    main { max-width: 760px; margin: auto; padding: 28px 22px 40px; }
-    h1 { margin: 0 0 8px; font-size: 27px; line-height: 1.2; }
-    h2 { margin: 0 0 6px; font-size: 18px; }
-    p { margin: 0 0 12px; }
-    .flow { margin: 20px 0; font-weight: 650; }
-    ol { margin: 0; padding-left: 24px; }
-    li { margin-bottom: 18px; padding-left: 4px; }
-    li p { margin: 0; }
-    section, footer { margin-top: 22px; padding-top: 18px; border-top: 1px solid #333; }
-    code, kbd { font: 0.92em ui-monospace, monospace; overflow-wrap: anywhere; }
+    main { max-width: 1100px; margin: auto; padding: 28px 22px; }
+    h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; }
+    p { margin: 0; }
+    figure { margin: 24px 0 12px; }
+    svg { display: block; width: 100%; height: auto; overflow: visible; }
+    svg text { fill: #fff; font-family: system-ui, sans-serif; text-anchor: middle; font-size: 16px; }
+    .node { fill: #000; stroke: #fff; stroke-width: 1.5; }
+    .boundary { fill: none; stroke: #444; }
+    .arrow { fill: none; stroke: #fff; stroke-width: 1.8; }
+    .title { font-size: 22px; font-weight: 650; }
+    .small { font-size: 14px; }
+    .mobile { display: none; }
+    footer { border-top: 1px solid #333; padding-top: 14px; font-size: 14px; }
+    footer p + p { margin-top: 8px; }
+    kbd { font: 1em ui-monospace, monospace; }
     a { color: #fff; text-underline-offset: 3px; }
     a:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
-    footer { font-size: 14px; }
-    @media (max-width: 420px) { main { padding: 22px 16px 32px; } h1 { font-size: 24px; } }
+    @media (max-width: 850px) {
+      main { max-width: 500px; padding: 22px 14px; }
+      h1 { font-size: 24px; }
+      .desktop { display: none; }
+      .mobile { display: block; }
+      figure { margin-top: 16px; }
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Second Draft: how the call works</h1>
-    <p>Call <strong>+1 (484) 740-8902</strong>. One continuous conversation, with two roles.</p>
-    <p class="flow" aria-label="Mira, then a fictional character, then back to Mira">Mira → Fictional character → Mira</p>
+    <h1>How the call works</h1>
+    <p>Second Draft · +1 (484) 740-8902</p>
+    <figure aria-label="The call flow and personality switch">
+      <svg class="desktop" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 395" role="img" aria-labelledby="desktop-title desktop-desc">
+        <title id="desktop-title">Mira to reasoning agent to fictional character, then back to Mira</title>
+        <desc id="desktop-desc">Talk to Mira. Saying let's practise triggers the reasoning agent to generate a name, role, behaviour and goal. The controller validates the scene and Guava changes the persona, voice and task. Say hey coach or press zero to return to Mira's original voice and receive feedback. The conversation and saved moment stay in the same call.</desc>
+        <defs>
+          <marker id="arrow-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#fff"/></marker>
+        </defs>
+        <rect class="boundary" x="8" y="8" width="984" height="280"/>
 
-    <ol>
-      <li>
-        <h2>Talk to Mira</h2>
-        <p>Describe the conversation you want help with. Mira listens as your AI coach.</p>
-      </li>
-      <li>
-        <h2>Say “Let’s practise”</h2>
-        <p>The reasoning agent uses your story to create a fictional name, situation, personality and goal. No extra confirmation or character questionnaire.</p>
-      </li>
-      <li>
-        <h2>The character starts</h2>
-        <p>Our controller validates the scene. Guava’s <code>set_persona()</code> changes the role and voice; <code>set_task()</code> sets the activity; <code>add_info()</code> supplies context. It is still the same call.</p>
-      </li>
-      <li>
-        <h2>Say “Hey coach”</h2>
-        <p>The scene pauses, pending changes are cancelled, and Mira’s persona and voice return. She can discuss the exchange you just had, using the conversation context and saved moment.</p>
-      </li>
-      <li>
-        <h2>Adjust, retry or finish</h2>
-        <p>Say “They’d joke instead” to adjust the character, “Try that moment again” to replay, or “End call.” You can also just keep talking with Mira.</p>
-      </li>
-    </ol>
+        <rect class="node" x="28" y="40" width="238" height="122"/>
+        <text class="title" x="147" y="77">Mira</text>
+        <text x="147" y="107">Listen + coach</text>
+        <text class="small" x="147" y="137">Original voice</text>
 
-    <section aria-labelledby="roles">
-      <h2 id="roles">Who does what?</h2>
-      <p><strong>Guava</strong> handles the phone, listening and speaking. The <strong>reasoning agent</strong> plans scene changes. Our <strong>controller</strong> applies them and prioritizes pause/end commands. Ordinary replies do not need a new planning request.</p>
-    </section>
+        <path class="arrow" d="M266 101 H376" marker-end="url(#arrow-d)"/>
+        <text class="small" x="323" y="71">“Let’s practise”</text>
+        <text class="small" x="323" y="130">No extra yes</text>
 
-    <section aria-labelledby="keys">
-      <h2 id="keys">Keypad shortcuts</h2>
-      <p><kbd>0</kbd> Pause · <kbd>1</kbd> Replay a saved moment from coaching · <kbd>9</kbd> End · <kbd>*</kbd> Help</p>
-    </section>
+        <rect class="node" x="380" y="40" width="238" height="122"/>
+        <text class="title" x="499" y="77">Reasoning agent</text>
+        <text x="499" y="107">Creates the personality</text>
+        <text class="small" x="499" y="137">Name · role · behaviour · goal</text>
 
+        <path class="arrow" d="M618 101 H728" marker-end="url(#arrow-d)"/>
+        <text class="small" x="675" y="71">Launch</text>
+        <text class="small" x="675" y="130">Role + voice</text>
+
+        <rect class="node" x="732" y="40" width="240" height="122"/>
+        <text class="title" x="852" y="77">Fictional character</text>
+        <text x="852" y="107">Rehearse with you</text>
+        <text class="small" x="852" y="137">Character voice</text>
+
+        <path class="arrow" d="M852 162 V223 Q852 241 834 241 H165 Q147 241 147 223 V166" marker-end="url(#arrow-d)"/>
+        <rect x="377" y="226" width="246" height="29" fill="#000"/>
+        <text x="500" y="247">“Hey coach” / press 0</text>
+        <text class="small" x="500" y="273">Restore Mira’s voice + discuss what happened</text>
+
+        <text x="500" y="326">Same call. Shared conversation + saved moment.</text>
+        <text class="small" x="500" y="360">Launch: controller validates → set_persona() + set_task()</text>
+        <text class="small" x="500" y="385">Guava handles listening and speaking throughout.</text>
+      </svg>
+
+      <svg class="mobile" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 718" role="img" aria-labelledby="mobile-title mobile-desc">
+        <title id="mobile-title">Mira to reasoning agent to fictional character, then back to Mira</title>
+        <desc id="mobile-desc">Saying let's practise launches a generated fictional personality, without another confirmation. Say hey coach or press zero to restore Mira's voice. Mira can discuss the rehearsal using the shared conversation and saved moment. The controller validates the scene before Guava changes the persona and task.</desc>
+        <defs>
+          <marker id="arrow-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#fff"/></marker>
+        </defs>
+        <rect class="boundary" x="6" y="8" width="348" height="566"/>
+
+        <rect class="node" x="90" y="32" width="248" height="110"/>
+        <text class="title" x="214" y="67">Mira</text>
+        <text x="214" y="97">Listen + coach</text>
+        <text class="small" x="214" y="123">Original voice</text>
+
+        <path class="arrow" d="M214 142 V231" marker-end="url(#arrow-m)"/>
+        <text class="small" x="279" y="181">“Let’s practise”</text>
+        <text class="small" x="279" y="204">No extra yes</text>
+
+        <rect class="node" x="90" y="236" width="248" height="110"/>
+        <text class="title" x="214" y="271">Reasoning agent</text>
+        <text x="214" y="301">Creates the personality</text>
+        <text class="small" x="214" y="327">Name · role · behaviour · goal</text>
+
+        <path class="arrow" d="M214 346 V435" marker-end="url(#arrow-m)"/>
+        <text x="279" y="389">Launch</text>
+        <text class="small" x="279" y="412">Role + voice</text>
+
+        <rect class="node" x="90" y="440" width="248" height="110"/>
+        <text class="title" x="214" y="475">Fictional character</text>
+        <text x="214" y="505">Rehearse with you</text>
+        <text class="small" x="214" y="531">Character voice</text>
+
+        <path class="arrow" d="M90 495 H52 Q38 495 38 481 V101 Q38 87 52 87 H85" marker-end="url(#arrow-m)"/>
+        <text transform="translate(25 291) rotate(-90)">“Hey coach” / 0 → Mira + feedback</text>
+
+        <text x="180" y="609">Same call. Shared context.</text>
+        <text class="small" x="180" y="634">Recent turns + saved scene + exchange</text>
+        <text class="small" x="180" y="669">Controller validates → Guava applies</text>
+        <text class="small" x="180" y="693">set_persona() + set_task()</text>
+        <text class="small" x="180" y="716">Guava listens and speaks throughout.</text>
+      </svg>
+    </figure>
     <footer>
-      <p>The planner uses recent turns plus the saved scene and exchange, not unlimited history. Characters are fictional. This is not licensed therapy. Guava may retain call records.</p>
-      <a href="https://github.com/ToukoUrsin/guavahack">Project source</a>
+      <p>“Change the character” → adjust · <kbd>1</kbd> from coach → replay · <kbd>9</kbd> → end · <kbd>*</kbd> → help</p>
+      <p>Recent context, not unlimited memory. Fictional practice, not licensed therapy.</p>
+      <p><a href="https://github.com/ToukoUrsin/guavahack">Project source</a></p>
     </footer>
   </main>
 </body>
