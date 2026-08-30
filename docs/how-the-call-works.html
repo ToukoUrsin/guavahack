@@ -10,6 +10,7 @@
     body { margin: 0; background: #000; color: #fff; font: 16px/1.5 system-ui, sans-serif; }
     main { max-width: 1100px; margin: auto; padding: 28px 22px; }
     h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; }
+    h2 { margin: 0 0 14px; font-size: 20px; }
     p { margin: 0; }
     figure { margin: 24px 0 12px; }
     svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -20,6 +21,17 @@
     .title { font-size: 22px; font-weight: 650; }
     .small { font-size: 14px; }
     .mobile { display: none; }
+    .detail { border-top: 1px solid #333; padding: 22px 0; }
+    .code-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; list-style: none; padding: 0; margin: 0 0 18px; }
+    .code-flow li { position: relative; border: 1px solid #fff; padding: 13px; min-width: 0; }
+    .code-flow li:not(:last-child)::after { content: "→"; position: absolute; top: 40%; right: -26px; width: 24px; text-align: center; font-size: 21px; }
+    .code-flow strong { display: block; margin-bottom: 8px; }
+    .code-flow p { margin-top: 9px; font-size: 14px; }
+    code { font: 0.86em ui-monospace, monospace; overflow-wrap: anywhere; }
+    .detail > p + p { margin-top: 10px; }
+    .examples { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; list-style: none; padding: 0; margin: 0 0 16px; }
+    .examples strong { display: block; margin-bottom: 4px; }
+    .examples q { font-size: 15px; }
     footer { border-top: 1px solid #333; padding-top: 14px; font-size: 14px; }
     footer p + p { margin-top: 8px; }
     kbd { font: 1em ui-monospace, monospace; }
@@ -31,6 +43,8 @@
       .desktop { display: none; }
       .mobile { display: block; }
       figure { margin-top: 16px; }
+      .code-flow, .examples { grid-template-columns: 1fr; }
+      .code-flow li:not(:last-child)::after { content: "↓"; top: auto; bottom: -28px; right: calc(50% - 12px); }
     }
   </style>
 </head>
@@ -121,6 +135,46 @@
         <text class="small" x="180" y="716">Guava listens and speaks throughout.</text>
       </svg>
     </figure>
+
+    <section class="detail" aria-labelledby="code-heading">
+      <h2 id="code-heading">What the code does</h2>
+      <ol class="code-flow" aria-label="Code pipeline from caller speech to the live character">
+        <li>
+          <strong>1. Hear the request</strong>
+          <code>adaptive.py<br>on_caller()</code>
+          <p>Keep recent speech. Recognize a practice request and start background planning.</p>
+        </li>
+        <li>
+          <strong>2. Generate scene data</strong>
+          <code>reasoner.py<br>GuavaPlanner.decide()</code>
+          <p>Guava’s LLM helper returns a <code>Decision</code>: operation, character, situation and activity.</p>
+        </li>
+        <li>
+          <strong>3. Check and apply</strong>
+          <code>adaptive_models.py<br>adaptive.py · _apply()</code>
+          <p>Validate the data’s structure and current request. Discard plans cancelled by pause or end.</p>
+        </li>
+        <li>
+          <strong>4. Change the live call</strong>
+          <code>set_persona()<br>add_info()<br>set_task()</code>
+          <p>Set the role and voice, supply scene context, then run the activity.</p>
+        </li>
+      </ol>
+      <p><strong>Data, not generated Python.</strong> The model describes the scene. Our existing code validates and runs it. Guava handles ordinary spoken replies without a new planning request.</p>
+      <p><strong>“Hey coach” takes a shortcut:</strong> save the exchange → cancel older plans → restore Mira’s role and voice. No planning wait is needed for that pause.</p>
+    </section>
+
+    <section class="detail" aria-labelledby="scenarios-heading">
+      <h2 id="scenarios-heading">Different conversations, same code</h2>
+      <ul class="examples">
+        <li><strong>Manager → workload</strong><q>Let’s rehearse asking my manager to move a deadline.</q></li>
+        <li><strong>Roommate → boundaries</strong><q>Let’s practise asking my roommate to be quieter at night.</q></li>
+        <li><strong>Friend → borrowed gear</strong><q>Let’s rehearse asking my friend to return my gear by Friday.</q></li>
+      </ul>
+      <p>There is no boyfriend-specific template. The caller’s story supplies the role, behaviour and goal. These are example requests, not a fixed menu.</p>
+      <p>The current prototype uses one voice for Mira and one alternate voice for all fictional characters. Personality changes do not create or clone a new voice.</p>
+    </section>
+
     <footer>
       <p>“Change the character” → adjust · <kbd>1</kbd> from coach → replay · <kbd>9</kbd> → end · <kbd>*</kbd> → help</p>
       <p>Recent context, not unlimited memory. Fictional practice, not licensed therapy.</p>
