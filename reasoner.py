@@ -6,7 +6,9 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Literal, Protocol
 
-from adaptive_models import ActivityDefinition, Decision, Mode, SceneDefinition
+from pydantic import BaseModel, ValidationError
+
+from adaptive_models import ActivityDefinition, Decision, Mode, Operation, SceneDefinition
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,8 @@ class Context:
     moment: Moment | None
     proposal: SceneDefinition | None
     keypad_replay: bool = False
+    activity_completed: bool = False
+    clarifications: tuple[tuple[str, str], ...] = ()
 
     def to_json(self) -> str:
         return json.dumps(
@@ -46,6 +50,8 @@ class Context:
                 "user_requested": self.user_requested,
                 "latest_caller": self.latest_caller,
                 "keypad_replay": self.keypad_replay,
+                "activity_completed": self.activity_completed,
+                "clarifications": dict(self.clarifications),
                 "transcript": [asdict(turn) for turn in self.transcript],
                 "scene": self.scene.model_dump() if self.scene else None,
                 "activity": self.activity.model_dump() if self.activity else None,
@@ -64,6 +70,40 @@ class Context:
 
 class Planner(Protocol):
     def decide(self, context: Context) -> Decision: ...
+
+
+class OperationSelection(BaseModel):
+    operation: Operation
+
+
+def provider_schema(operation: Operation | None = None) -> dict:
+    """Expose conditional payload requirements to the provider, not just Python."""
+    schema = Decision.model_json_schema()
+
+    def remove_defaults(node: object) -> None:
+        if isinstance(node, dict):
+            node.pop("default", None)
+            for child in node.values():
+                remove_defaults(child)
+        elif isinstance(node, list):
+            for child in node:
+                remove_defaults(child)
+
+    remove_defaults(schema)
+    if operation is not None:
+        schema["properties"]["operation"] = {"type": "string", "const": operation.value}
+    required = ["operation", "guidance", "consent_quote"]
+    if operation in {Operation.CREATE, Operation.REVISE}:
+        schema["properties"]["scene"] = {"$ref": "#/$defs/SceneDefinition"}
+        required.append("scene")
+    if operation in {Operation.CREATE, Operation.COACH}:
+        schema["properties"]["activity"] = {"$ref": "#/$defs/ActivityDefinition"}
+        required.append("activity")
+    if operation in {Operation.STAY, Operation.END, Operation.SAFETY}:
+        schema["properties"]["scene"] = {"type": "null"}
+        schema["properties"]["activity"] = {"type": "null"}
+    schema["required"] = required
+    return schema
 
 
 PLANNER_PROMPT = """
@@ -91,6 +131,14 @@ Capabilities:
 - end: only if the caller actually wants to end the call, never a turn limit.
 - safety: stop fictional practice when human/crisis support is appropriate.
 
+Required output payloads (do not copy the null fields from the input context):
+- create MUST include complete, non-null scene AND activity objects you generate.
+- revise MUST include a complete, non-null replacement scene.
+- coach MUST include a non-null activity with the objective you generate.
+- stay, end, and safety MUST leave scene and activity null.
+- replay may leave them null to reuse the saved moment.
+An operation label alone is not a scene or activity definition.
+
 Consent: entering a NEW rehearsal or replay after a pause requires an explicit
 current caller request/agreement. Put an exact short quote from latest_caller
 into consent_quote as evidence. Do not reuse old consent from the transcript.
@@ -102,8 +150,19 @@ pretend consent. Leave consent_quote empty; the coach will ask before starting.
 Scene: create a fictional stand-in, never assert what the real person thinks or
 predict their response. Name it Alex or another fictional name, not a real name
 given by the caller. Behavior should follow the caller's description and change
-when corrected. Known facts must come from the caller. An opening_line is the
-counterpart's next line, not coaching narration. Keep spoken turns short.
+when corrected. known_facts must be EXACT QUOTES from caller messages, not
+paraphrases or invented context. Do not invent a trip, deadline, item type, cost,
+or personal history to fill out the situation. Define caller_role (the HUMAN)
+and counterpart_role (GUAVA'S role) explicitly in third person. Avoid ambiguous
+'you' in scene definitions. Preserve who owns an item, who lent it, and who is
+making the request. Do not write dialogue for both sides; Guava speaks only as
+the counterpart. Do not predetermine agreement or imply that good wording
+guarantees the real person's response. In a rehearsal,
+the activity objective tells Guava how to PLAY THE COUNTERPART. Use an empty
+checklist and fields unless absolutely necessary; don't turn a rehearsal into
+an instructor's form. Use a coach activity if real clarification is needed.
+Keep spoken turns short.
+guidance is an optional instruction to Guava, never your analysis or setup narration.
 
 Coaching: be specific, warm, and not sycophantic. Never diagnose, prescribe,
 blame the caller for mistreatment, simulate abuse, or coach them to tolerate
@@ -122,8 +181,19 @@ class GuavaPlanner:
         # separate vendor credentials, prompt logs, or persistent transcript DB.
         from guava.helpers.llm import generate
 
-        response = generate(
-            PLANNER_PROMPT + "\n\nConversation data:\n" + context.to_json(),
-            json_schema=Decision.model_json_schema(),
-        )
-        return Decision.model_validate_json(response)
+        prompt = PLANNER_PROMPT + "\n\nConversation data:\n" + context.to_json()
+        schema = provider_schema()
+        response = generate(prompt, json_schema=schema)
+        try:
+            return Decision.model_validate_json(response)
+        except ValidationError as exc:
+            # One repair only; invalid output is never applied, and values stay
+            # inside this request rather than leaking to console diagnostics.
+            errors = exc.errors(include_input=False, include_context=False, include_url=False)
+            selected = OperationSelection.model_validate_json(response)
+            response = generate(
+                prompt + "\n\nYour previous JSON failed validation. Return a complete corrected "
+                "decision for the same conversation. Errors: " + json.dumps(errors),
+                json_schema=provider_schema(selected.operation),
+            )
+            return Decision.model_validate_json(response)

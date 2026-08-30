@@ -49,7 +49,14 @@ class ActivityDefinition(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    objective: str = Field(min_length=1, max_length=2400)
+    objective: str = Field(
+        min_length=1,
+        max_length=2400,
+        description=(
+            "Instructions for what Guava does in the activity. In rehearsal, address "
+            "Guava as the fictional counterpart, not as an instructor grading the caller."
+        ),
+    )
     completion_criteria: str = Field(default="", max_length=800)
     checklist: tuple[ChecklistItem, ...] = Field(default_factory=tuple, max_length=6)
     fields: tuple[ClarificationField, ...] = Field(default_factory=tuple, max_length=3)
@@ -70,13 +77,42 @@ class SceneDefinition(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     title: str = Field(min_length=1, max_length=120)
-    situation: str = Field(min_length=1, max_length=1600)
+    situation: str = Field(
+        min_length=1,
+        max_length=1600,
+        description=(
+            "Summarize only the situation supplied by the caller. Do not invent "
+            "item types, costs, deadlines, trips, or reasons they need something."
+        ),
+    )
     counterpart_name: str = Field(default="Alex", min_length=1, max_length=80)
+    caller_role: str = Field(
+        min_length=1,
+        max_length=800,
+        description=(
+            "The human caller's role and position, in third person. For example: "
+            "The caller owns the gear and lent it to the counterpart. Never address this role as you."
+        ),
+    )
+    counterpart_role: str = Field(
+        min_length=1,
+        max_length=800,
+        description=(
+            "The role Guava plays, in third person. For example: the counterpart "
+            "borrowed the caller's gear and has not returned it. Keep ownership unambiguous."
+        ),
+    )
     counterpart_description: str = Field(min_length=1, max_length=1200)
     behavior: str = Field(min_length=1, max_length=1200)
     caller_goal: str = Field(min_length=1, max_length=800)
-    opening_line: str = Field(default="", max_length=500)
-    known_facts: tuple[KnownFact, ...] = Field(default_factory=tuple, max_length=12)
+    known_facts: tuple[KnownFact, ...] = Field(
+        default_factory=tuple,
+        max_length=12,
+        description=(
+            "Exact short quotes from caller messages establishing the scene facts. "
+            "Do not paraphrase, invent facts, or include fictional counterpart assumptions."
+        ),
+    )
     boundaries: tuple[Boundary, ...] = Field(default_factory=tuple, max_length=8)
 
 
@@ -86,10 +122,37 @@ class Decision(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     operation: Operation
-    scene: SceneDefinition | None = None
-    activity: ActivityDefinition | None = None
-    guidance: str = Field(default="", max_length=2000)
-    consent_quote: str = Field(default="", max_length=500)
+    scene: SceneDefinition | None = Field(
+        default=None,
+        description=(
+            "For create and revise this MUST be a complete generated SceneDefinition, not null. "
+            "For replay include it only when correcting the saved scene."
+        ),
+    )
+    activity: ActivityDefinition | None = Field(
+        default=None,
+        description=(
+            "For create and coach this MUST be a generated ActivityDefinition with a concrete "
+            "objective, not null. Other operations may reuse the current activity."
+        ),
+    )
+    guidance: str = Field(
+        default="",
+        max_length=2000,
+        description=(
+            "Optional concise instruction to Guava, not an explanation of your decision "
+            "or a spoken setup announcement. Empty is fine when the activity says enough."
+        ),
+    )
+    consent_quote: str = Field(
+        default="",
+        max_length=500,
+        description=(
+            "Exact words from latest_caller that request or agree to this practice. "
+            "Copy them verbatim when consent is explicit; use empty string only when "
+            "no current agreement/request exists. Never quote earlier consent."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_operation_payload(self) -> Decision:

@@ -1,42 +1,45 @@
-# Guava Build Night SF
+# Second Draft
 
-> **Work-in-progress snapshot:** the fixed flow described below is being replaced
-> by one asynchronous planning agent and dynamically generated activities.
-> `adaptive.py`, `adaptive_models.py`, and `reasoner.py` contain the new runtime.
-> The earlier `test_main.py` and `verify_live.py` harnesses still need migration.
-> The new modules pass lint/type checks and six model-validation tests, but the
-> full test suite is not yet green. The previous deployment has been stopped.
+A continuous conversation-practice coach built for [Guava Build Night SF](https://lu.ma/678a9u02).
+Talk through a difficult conversation, create a fictional rehearsal when useful,
+correct the character halfway through, pause for coaching, and replay that moment.
+There is no prescribed intake form, number of exchanges, retry limit, or mandatory
+takeaway. Staying in conversation is a valid choice.
 
-Hackathon workspace for the [Guava Voice AI Hackathon: Build Night SF](https://lu.ma/678a9u02).
+## How it works
 
-This repo contains **Second Draft**, a voice agent for rehearsing difficult
-conversations. It collects a de-identified scenario, changes persona for a short
-roleplay, returns as a coach for one specific piece of feedback, and offers a
-single do-over before closing with a takeaway.
+Guava handles the live voice interaction. One asynchronous planning agent
+intervenes at activity requests and activity completion.
+It generates structured scene and activity definitions through Guava's hosted
+LLM helper. Ordinary replies do not wait for another model call.
 
-Second Draft is deliberately a rehearsal coach, not a therapist. It does not
-diagnose people, imitate a real person's voice, or claim to predict how someone
-will respond. Explicit crisis language exits roleplay and directs the caller to
-human support.
+- `main.py` configures the Guava runtime, channels, and private console logging.
+- `adaptive.py` owns each call's mode, scene, replay checkpoint, and pending work.
+- `adaptive_models.py` validates immutable model-generated definitions.
+- `reasoner.py` defines the planner's context, schema, and generation policy.
 
-## Start here
+The planner can stay in conversation, create or revise an activity, return to
+coaching, replay a saved moment, or recommend a human-support exit. The code
+validates the result before applying `set_task`, `set_persona`, `send_instruction`,
+or `add_info`. Generated clarification fields are optional and used only where
+useful. No generated Python or other executable code is run.
 
-1. Read [`EVENT.md`](EVENT.md) for the schedule, judging criteria, rules, and
-   arrival checklist.
-2. Run the focused tests:
+Pause/end controls invalidate older plans immediately. An old action or task
+completion cannot resume a scene after the caller has left it. Each revised
+scene gets a separate generation so later replay checkpoints do not mix versions.
+Entries in `known_facts` are retained only when grounded in caller quotes or
+previously grounded facts. Session memory is in-process and cleared on call end;
+an in-flight model request may finish afterward, but its result is discarded.
 
-   ```bash
-   uv run python -m unittest -v
-   ```
+## Run
 
-3. Start a local audio call:
+```bash
+uv sync --group dev
+guava run .
+```
 
-   ```bash
-   guava run .
-   ```
-
-The default channel is local audio on your laptop and inbound phone in Guava's
-hosted runtime. Select a channel explicitly with `GUAVA_CHANNEL`:
+The default is laptop audio locally and inbound phone in Guava's hosted runtime.
+To select a channel explicitly:
 
 ```bash
 GUAVA_CHANNEL=chat guava run .
@@ -44,93 +47,91 @@ GUAVA_CHANNEL=webrtc guava run .
 GUAVA_CHANNEL=phone GUAVA_AGENT_NUMBER=+15555555555 guava run .
 ```
 
-The phone channel requires `GUAVA_AGENT_NUMBER` in E.164 format. Guava injects
-the demo line configured in `guava.toml` at deployment. That number is the
-agent's inbound line, not a caller's personal number. Never add caller details
-or credentials to this repository.
+Guava injects the demo number from `guava.toml` at deployment. That is the agent's
+inbound line, not a caller's personal number. Never add credentials or caller
+details to the repository.
 
-## Controls
+Current controls:
 
-- Say **coach** or **pause** to leave a scene. On a phone, press **0**.
-- Say **end call** or press **9** to end the call.
-- A consent refusal ends the session without starting a scene.
-- A human-support exit cannot return to roleplay in the same session.
+- Say **coach**, **pause**, or **stop roleplay** to return to coaching.
+- Say **end call** or press **9** to hang up.
+- Press **0** to leave the scene and return to the coach.
+- Ask to change the character or **try that moment again** through speech.
 
-Victor owns the proposed `1 = retry` and `* = help` extension. Those controls
-are not implemented here yet.
+Victor owns the proposed keypad `1 = replay` and `* = help` extension. Those keys
+are not wired here yet. `Controller.replay()` is the integration point; keypad
+actions should be intents, not depend on a fixed activity sequence.
 
-## Verification
+## Verify
 
 ```bash
-uv sync --group dev
 uv run python -m unittest -v
-uv run ruff check main.py test_main.py verify_live.py
-uv run ty check main.py test_main.py verify_live.py
+uv run ruff check .
+uv run ty check .
 ```
 
-The unit tests run without network access and use Guava's installed command
-models and event dispatcher. They prove control wiring, not voice quality or
-clinical safety.
+Offline tests cover generated definitions, current consent, corrections, replay
+fidelity, slow-planner cancellation, stale events, privacy logging, and runtime
+selection. They use the installed Guava command models and event dispatcher.
+They do not prove clinical safety or audio quality.
 
-Opt-in hosted tests use synthetic text through Guava, consume account minutes,
-and do not dial a real phone:
+Opt-in Guava tests use synthetic text and do not dial a real phone:
 
 ```bash
-uv run python verify_live.py full
+uv run python verify_live.py planner
+uv run python verify_live.py adaptive
 uv run python verify_live.py safety
 ```
 
-Each hosted test has a 150-second deadline. A passing run requires the expected
-stages and a server-observed bot hangup. Review the generated transcript as well:
-the automated checks do not grade the quality of coaching or verify audible
-voice changes. Both paths passed on August 29, 2026. A genuine PSTN call remains
-a separate hackathon eligibility check.
+Each test process has a five-minute deadline. The adaptive test requires actual
+scene creation, a mid-scene correction, a saved pause point, replay, and a
+server-observed hangup. Inspect its transcript as well; the checks are not a
+complete assessment of coaching quality or audible voice changes.
 
-## Deployment and cost
+The provider schema deliberately omits Python defaults. If a decision lacks a
+required payload, one repair request uses an operation-specific schema that
+makes that payload required. Schema-invalid output never reaches the call.
 
-The project uses one `guava-seed` replica and Python 3.12, matching the locally
-tested Python version. Deploy only the runtime and dependency files; the
-documentation and local tests are not runtime dependencies.
+## Deploy and stop
+
+The project uses one `guava-seed` replica and Python 3.12, matching local tests.
+Deploy a runtime-only bundle so local tests and unrelated documents stay local:
 
 ```bash
 demo_bundle=$(mktemp -d)
-cp main.py pyproject.toml uv.lock guava.toml "$demo_bundle/"
+cp main.py adaptive.py adaptive_models.py reasoner.py pyproject.toml uv.lock guava.toml "$demo_bundle/"
 guava deploy up "$demo_bundle"
 guava deploy status .
 guava deploy down .
 ```
 
-The approved account plan is Free: $0/month, 500 included minutes/year, then
-$0.15/minute. No paid upgrade or new number purchase was made. The user's total
-spending ceiling is $20. These prices are not an application-enforced spending
-limit: check current usage and any resource charges, and stop the deployment
-after the demo rather than leaving an unattended public phone agent running.
+The authorized spending ceiling is **$20 total**. The verified account plan is
+Free: $0/month, 500 included minutes/year, then $0.15/minute. No paid upgrade or
+new number purchase was made. Recheck account usage and any resource charges
+before deployment. This app does not enforce a provider billing cap; stop the
+deployment after the demo instead of leaving an unattended phone service running.
 
-## Privacy and safety limits
+## Demo acceptance
 
-This is an adult hackathon prototype, not treatment or crisis care. The explicit
-phrase detector is a conservative backstop, not a validated clinical classifier;
-it can miss disclosures or stop a benign discussion. Prompt instructions also
-ask the agent to avoid abusive scenes, diagnoses, mind-reading, and victim blame.
+Use an unfamiliar, made-up situation. Stay in coaching first, then request a
+rehearsal. Correct how the counterpart behaves, pause and ask for a useful phrase,
+then replay that same moment with the correction intact. Test `0` and `9` from
+a real phone. A genuine PSTN call is a separate eligibility gate from hosted
+synthetic tests. See [EVENT.md](EVENT.md) for the event rules.
 
-SDK telemetry is disabled and console diagnostics omit SDK transcripts and raw
-error details. The app adds no persistent conversation database. Guava still
-processes the audio and may retain conversations/recordings; `sensitive=True`
-on fields is not proof of deletion or end-to-end confidentiality. Use made-up
-examples for the demo.
+## Safety and privacy limits
 
-## Project files
+This is an adult hackathon prototype, not therapy, diagnosis, or crisis care.
+Roleplay is fictional, not an imitation of a real person or a prediction of their
+response. Prompt instructions prohibit abuse simulation, diagnoses, victim blame,
+and pressure to confront someone unsafe. The explicit crisis-phrase detector is
+a conservative backstop, not a validated risk classifier; it can miss disclosures
+or stop a benign discussion. A human-support exit cannot resume roleplay.
 
-- `main.py`: Second Draft agent and channel selection
-- `test_main.py`: deterministic flow and safety-routing tests
-- `verify_live.py`: bounded Guava-hosted synthetic conversation checks
-- `guava.toml`: authenticated Guava project configuration
-- `guava-docs.md`: Guava's coding-agent starter documentation snapshot
-- `EVENT.md`: hackathon logistics, rules, and judging notes
+SDK telemetry is disabled. Console output omits SDK transcripts and raw error
+details. Guava still processes audio and may retain conversations or recordings.
+Sensitive field flags do not prove deletion or end-to-end confidentiality. Use
+made-up examples in the demo.
 
-## Useful links
-
-- [Event on Luma](https://lu.ma/678a9u02)
-- [Organizer setup guide](https://docs.google.com/document/d/1t7HvkXgFfhhLs69-HESnTfUlJfaQHHPtWM4m_4H1zE4/edit)
-- [Guava quickstart](https://goguava.ai/docs/quickstart)
-- [Guava agent documentation](https://goguava.ai/docs/agent)
+The HTML guide in `docs/` describes the earlier linear prototype; it is retained
+as background material, not the specification for this adaptive runtime.

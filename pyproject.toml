@@ -2,7 +2,7 @@
 name = "guavahack"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["guava-sdk", "typing_extensions"]
+dependencies = ["guava-sdk", "pydantic>=2", "typing_extensions"]
 
 [dependency-groups]
 dev = ["ruff", "ty"]
