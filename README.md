@@ -1,10 +1,15 @@
 # Second Draft
 
-A continuous conversation-practice coach built for [Guava Build Night SF](https://lu.ma/678a9u02).
+An AI therapy companion with conversation rehearsal, built for [Guava Build Night SF](https://lu.ma/678a9u02).
 Talk through a difficult conversation, create a fictional rehearsal when useful,
 correct the character halfway through, pause for coaching, and replay that moment.
 There is no prescribed intake form, number of exchanges, retry limit, or mandatory
 takeaway. Staying in conversation is a valid choice.
+
+The introduction is brief: "Hi, I'm Mira, an AI therapy companion. What's on your
+mind?" Fictional names and behavior are inferred from the conversation, not
+collected through a character-setup questionnaire. A missing essential situation
+or goal can still be clarified. This is not licensed mental-health care.
 
 ## How it works
 
@@ -27,6 +32,17 @@ useful. No generated Python or other executable code is run.
 Pause/end controls invalidate older plans immediately. An old action or task
 completion cannot resume a scene after the caller has left it. Each revised
 scene gets a separate generation so later replay checkpoints do not mix versions.
+Practice requests and replies such as "yeah" are checked against the actual
+current utterance and rehearsal offer. A missing model-generated quote cannot
+block an explicit request. Unrelated acknowledgements and withdrawals still do
+not authorize a scene.
+Agreement to an immediately preceding rehearsal offer starts planning directly
+from the speech callback. The voice model cannot silently skip that switch;
+later action callbacks for the same agreement do not start duplicate plans.
+Guava may reuse an offered action key after a later reply. The controller accepts
+that new request while rejecting duplicate delivery and keys invalidated by a
+pause or newer request. Corrected checkpoints retain the original human cue
+until a new in-scene line replaces it.
 Entries in `known_facts` are retained only when grounded in caller quotes or
 previously grounded facts. Session memory is in-process and cleared on call end;
 an in-flight model request may finish afterward, but its result is discarded.
@@ -83,6 +99,7 @@ Opt-in Guava tests use synthetic text and do not dial a real phone:
 ```bash
 uv run python verify_live.py planner
 uv run python verify_live.py adaptive
+uv run python verify_live.py natural
 uv run python verify_live.py safety
 ```
 
@@ -90,6 +107,10 @@ Each test process has a five-minute deadline. The adaptive test requires actual
 scene creation, a mid-scene correction, a saved pause point, replay, and a
 server-observed hangup. Inspect its transcript as well; the checks are not a
 complete assessment of coaching quality or audible voice changes.
+The natural-language check uses a bare "Yeah" confirmation and asserts that the
+agent infers the fictional character instead of asking for a name or profile.
+Live checks wait for caller callbacks and spoken switch announcements; a queued
+task or a local mode change alone is not proof that the voice agent switched.
 
 The provider schema deliberately omits Python defaults. If a decision lacks a
 required payload, one repair request uses an operation-specific schema that
@@ -132,9 +153,16 @@ a conservative backstop, not a validated risk classifier; it can miss disclosure
 or stop a benign discussion. A human-support exit cannot resume roleplay.
 
 SDK telemetry is disabled. Console output omits SDK transcripts and raw error
-details. Guava still processes audio and may retain conversations or recordings.
+details. It records only planner operations, field counts, and consent-gate reason
+codes for debugging. Guava still processes audio and may retain conversations or recordings.
 Sensitive field flags do not prove deletion or end-to-end confidentiality. Use
 made-up examples in the demo.
+
+For an authorized call investigation, read the full available provider transcript
+with `guava conversations transcript <call-id>`, alongside deployment event logs.
+Console routing logs are not a substitute for the conversation. Guava may redact
+parts of the transcript; do not describe those records as verbatim audio. Keep
+real transcripts and recordings out of GitHub and use synthetic regression cases.
 
 The HTML guide in `docs/` describes the earlier linear prototype; it is retained
 as background material, not the specification for this adaptive runtime.

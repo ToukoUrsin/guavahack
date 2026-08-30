@@ -2,10 +2,19 @@
 
 import unittest
 
-from verify_live import spoken_checks
+from verify_live import natural_spoken_checks, spoken_checks
 
 
 class SpokenGateTests(unittest.TestCase):
+    def test_financial_reflection_is_not_an_intake_question(self) -> None:
+        text = "What's on your mind? It sounds like your financial contributions aren't recognized."
+        self.assertTrue(natural_spoken_checks(text)["did_not_ask_for_financial_inventory"])
+        self.assertFalse(
+            natural_spoken_checks("What financial contributions do you make?")[
+                "did_not_ask_for_financial_inventory"
+            ]
+        )
+
     def test_controller_state_cannot_mask_spoken_role_inversion(self) -> None:
         checks = spoken_checks(
             "I'm stepping back into coach mode now. How did that feel?",

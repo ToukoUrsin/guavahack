@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import unicodedata
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -28,7 +29,10 @@ logger = logging.getLogger("second_draft")
 MODE_KEY = "second_draft_mode"
 
 COACH_PURPOSE = """
-You are Mira, an AI conversation-practice coach for adults, not a therapist.
+You are Mira, an AI therapy companion for supportive conversation and rehearsal.
+You are not a licensed therapist and do not provide diagnosis or clinical treatment.
+Use a short AI disclosure, not a long opening disclaimer. Be truthful about these
+limits if asked, without repeatedly interrupting the conversation with them.
 Have one natural, continuous conversation. Help the caller think through what
 they want to say. Do not conduct a prescribed intake or force rehearsal, a
 fixed number of exchanges, feedback, retries, or a closing. Staying here and
@@ -37,8 +41,17 @@ talking is valid. Ask one relevant question at a time, not a form.
 Your Expert can invent, revise, and replay activities. When the caller asks to
 practice, agrees to your suggestion, corrects a character, asks to change the
 scene, or says 'try that moment again', request an action so the Expert can
-adapt the activity. Do not impersonate the counterpart until the Expert has
-changed your persona. Ask before starting a new rehearsal. In any mode, 'coach'
+adapt the activity. Once the caller has requested or agreed to practice, invoke
+the action immediately using the context already given. 'Yeah', 'yep', and similar
+natural agreements count; do not keep asking if they are ready.
+Choose a fictional name yourself and infer the counterpart's behavior from the
+caller's story. If nothing is specified, use Alex and a neutral, plausible style.
+Do not ask for a name, personality profile, voice, difficulty, or a financial
+inventory to set up a scene. Do not re-ask facts already given. Only ask a brief
+clarification if the actual situation or desired outcome is genuinely unclear.
+Let the caller correct your fictional choices while practicing.
+Do not impersonate the counterpart until the Expert has changed your persona.
+If you suggest practice without a caller request, ask permission once. In any mode, 'coach'
 or 'pause' returns to coaching; 'end call' ends the call.
 
 Use the existing conversation and saved scene; do not ask callers to repeat
@@ -47,8 +60,8 @@ Use short, natural replies. Avoid 'just a moment', setup narration, repeated
 greetings, and generic praise. Never claim to know a real person's thoughts.
 Use fictional stand-ins. Do not diagnose or prescribe treatment, simulate abuse,
 blame the caller for mistreatment, or pressure them to confront someone unsafe.
-Do not promise confidentiality or a human transfer. Ask callers to omit real
-names and identifying details. Requests for human/crisis support leave roleplay.
+Do not promise confidentiality or a human transfer. Do not solicit identifying
+details. Requests for human/crisis support leave roleplay.
 Only caller-provided details are source facts. Fictional character dialogue and
 jokes are not evidence about the caller or the real person. Do not invent a
 trip, motive, deadline, or backstory in coaching examples. Keep them hypothetical
@@ -58,8 +71,11 @@ when unknown, or reuse the caller's own words.
 OPEN_CONVERSATION = ActivityDefinition(
     objective=(
         "Have a continuous, supportive conversation about what the caller wants to work on. "
-        "Ask what happened or what they usually say when helpful. Rehearsal is optional; "
-        "offer it only when useful and ask permission. Use actions for requested activities."
+        "Reflect the key point briefly. If the caller describes a situation and mentions "
+        "practicing, offer a rehearsal rather than asking for more background already given. "
+        "Rehearsal is optional; ask permission once if they have not requested it. Once agreed, use "
+        "an action immediately. Infer the fictional name and behavior; do not run a setup "
+        "questionnaire or collect a detailed financial inventory."
     ),
     completion_criteria="Remain in conversation unless the caller wants a different activity or to end.",
 )
@@ -73,6 +89,16 @@ PAUSED_CONVERSATION = ActivityDefinition(
         "Let them decide whether to keep discussing, revise, replay, or stop."
     ),
     completion_criteria="Keep discussing for as long as the caller finds useful.",
+)
+
+WAITING_FOR_PLAN = ActivityDefinition(
+    objective=(
+        "The caller has requested an activity change and the Expert is preparing it. "
+        "Acknowledge briefly if needed, then listen. Do not ask setup questions, "
+        "improvise character dialogue, repeat either side of a scene, or give coaching "
+        "examples. Await the Expert's next activity. Honor pause and end requests immediately."
+    ),
+    completion_criteria="Do not complete this task yourself; the Expert will replace it.",
 )
 
 SAFETY_MESSAGE = (
@@ -110,27 +136,77 @@ def retracts_practice(text: str) -> bool:
     )
 
 
-def consent_is_current(context: Context, decision: Decision) -> bool:
+def normalized_speech(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text).casefold().replace("’", "'").replace("'", "")
+    return " ".join(re.findall(r"\w+", text))
+
+
+def practice_was_offered(context: Context) -> bool:
+    caller_index = next(
+        (
+            i
+            for i in range(len(context.transcript) - 1, -1, -1)
+            if context.transcript[i].speaker == "caller"
+        ),
+        len(context.transcript),
+    )
+    preceding = []
+    for turn in reversed(context.transcript[:caller_index]):
+        if turn.speaker == "caller":
+            break
+        preceding.append(turn.text)
+    offer = normalized_speech(" ".join(reversed(preceding)))
+    return bool(
+        re.search(r"\b(?:practice|practicing|rehearse|rehearsal|roleplay|scene)\b", offer)
+        and re.search(r"\b(?:want|would|ready|like|try|shall|start|can|could)\b", offer)
+    )
+
+
+def check_consent(context: Context, operation: Operation) -> tuple[bool, str]:
     if context.keypad_replay:
-        return decision.operation == Operation.REPLAY and context.moment is not None
-    if not context.user_requested or retracts_practice(context.latest_caller):
-        return False
-    if context.origin_mode == Mode.REHEARSAL and decision.operation in {
+        allowed = operation == Operation.REPLAY and context.moment is not None
+        return allowed, "keypad_replay" if allowed else "invalid_keypad_operation"
+    if not context.user_requested:
+        return False, "no_current_request"
+    if retracts_practice(context.latest_caller):
+        return False, "caller_retracted"
+    if context.origin_mode == Mode.REHEARSAL and operation in {
         Operation.REVISE,
         Operation.REPLAY,
     }:
-        return True
-    quote = decision.consent_quote.strip().casefold()
-    if not quote or quote not in context.latest_caller.casefold():
-        return False
-    # A copied quote is evidence only if it actually contains an agreement or
-    # practice request; unrelated quoted words must not become consent.
-    return bool(
+        return True, "ongoing_rehearsal"
+    latest = normalized_speech(context.latest_caller)
+    if re.search(r"\bnot what i (?:want|meant|asked)\b", latest):
+        return False, "caller_retracted"
+    # The caller's utterance is authoritative. A model's missing or imperfect
+    # quote must not block an otherwise clear, current request.
+    tentative = bool(re.search(r"\b(?:maybe|might|considering|not sure)\b", latest))
+    direct_request = not tentative and bool(
         re.search(
-            r"\b(?:yes|sure|okay|ok|try|practice|rehearse|roleplay|replay|start|begin|resume|again)\b|go ahead|sounds good|please do",
-            quote,
+            r"\b(?:lets|let us|want|wanna|would like|id like|please|can we|could we|can you|could you|start|begin|resume)\b.{0,100}\b(?:practice|rehearse|roleplay|rehearsal|scene)\b"
+            r"|^(?:practice|rehearse|roleplay)\b|^(?:please )?switch (?:to|into)\b",
+            latest,
         )
     )
+    if operation == Operation.REPLAY and context.moment is not None:
+        direct_request = direct_request or bool(
+            re.search(
+                r"\b(?:replay|retry|repeat|redo|resume)\b|try .{0,60}(?:again|moment)|^(?:again|one more time)$",
+                latest,
+            )
+        )
+    if direct_request:
+        return True, "current_request"
+    agreement = bool(
+        re.search(
+            r"^(?:(?:uh|um|well)\s+)*(?:yes|yeah|yep|yup|sure|okay|ok|absolutely|certainly)\b"
+            r"|^(?:go ahead|sounds good|please do|lets do (?:it|this)|go for it|uh huh|mm hmm)",
+            latest,
+        )
+    )
+    if agreement and not practice_was_offered(context):
+        return False, "agreement_without_practice_offer"
+    return agreement, "current_agreement" if agreement else "not_a_current_agreement"
 
 
 def grounded_scene(scene: SceneDefinition, context: Context) -> SceneDefinition:
@@ -167,6 +243,13 @@ class PendingAction:
 
 
 @dataclass(frozen=True)
+class ExecutedAction:
+    key: str
+    action: PendingAction
+    user_revision: int
+
+
+@dataclass(frozen=True)
 class Work:
     epoch: int
     context: Context
@@ -180,6 +263,7 @@ class Session:
     task_counter: int = 0
     scene_generation: int = 0
     user_revision: int = 0
+    speech_request_revision: int = -1
     last_completed_user_revision: int = -1
     active_task: str = ""
     scene: SceneDefinition | None = None
@@ -189,6 +273,7 @@ class Session:
     turns: list[Turn] = field(default_factory=list)
     clarifications: dict[str, str] = field(default_factory=dict)
     pending_actions: dict[str, PendingAction] = field(default_factory=dict)
+    last_action: ExecutedAction | None = None
     queued: Work | None = None
     thinking: bool = False
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -200,6 +285,7 @@ class Session:
     def invalidate(self) -> None:
         self.epoch += 1
         self.pending_actions.clear()
+        self.last_action = None
         self.queued = None
 
     def snapshot(
@@ -254,16 +340,11 @@ class Controller:
         with self.sessions_lock:
             self.sessions[call.id] = session
         with session.lock:
-            phone_hint = (
-                " Press star for keypad controls." if call.call_info.call_type == "pstn" else ""
-            )
             self._install(
                 session,
                 OPEN_CONVERSATION,
                 Mode.COACH,
-                announcement="Hi, I'm Mira, an AI conversation-practice coach. This isn't therapy. Skip names or identifying details."
-                + phone_hint
-                + " What's on your mind?",
+                announcement="Hi, I'm Mira, an AI therapy companion. What's on your mind?",
             )
 
     def _install(
@@ -309,11 +390,17 @@ class Controller:
                 "Fictional scene, not facts about the real person", session.scene.model_dump()
             )
         if replay:
+            caller_line = next(
+                (turn.text for turn in reversed(replay.exchange) if turn.speaker == "caller"), ""
+            )
+            counterpart_lines = [turn.text for turn in replay.exchange if turn.speaker == "agent"]
             call.add_info(
-                "Moment to reconstruct; ignore later fictional outcomes",
+                "Counterpart-only checkpoint; the human has already spoken",
                 {
-                    "exchange": [{"speaker": t.speaker, "text": t.text} for t in replay.exchange],
-                    "instruction": "Respond to the saved CALLER line as the COUNTERPART, with the correction applied. Never speak the caller's line. No new greeting, setup, or intake.",
+                    "caller_input_context_only_do_not_say": caller_line,
+                    "counterpart_previous_response": counterpart_lines,
+                    "next_speaker": "counterpart only",
+                    "instruction": "Continue immediately AFTER the human's input. Say only the counterpart's response with the correction applied. This is not a script to read from the start. Do not recite the human's words or a new greeting.",
                 },
             )
         checklist: list[guava.Field | guava.Say | str] = []
@@ -360,8 +447,36 @@ class Controller:
         ]
         if exclude_latest_caller and turns and turns[-1].speaker == "caller":
             turns = turns[:-1]
+        if turns and not any(turn.speaker == "caller" for turn in turns) and session.moment:
+            # A corrected reply belongs to a new scene generation, but still
+            # answers the same human cue. Retain that cue until they speak a
+            # new in-scene line; otherwise the next replay loses its anchor.
+            cue = next(
+                (turn for turn in reversed(session.moment.exchange) if turn.speaker == "caller"),
+                None,
+            )
+            if cue:
+                turns.insert(
+                    0,
+                    Turn(
+                        "caller",
+                        cue.text,
+                        Mode.REHEARSAL,
+                        cue.utterance_id,
+                        session.scene_generation,
+                    ),
+                )
         if turns:
-            session.moment = Moment(session.scene, session.activity, tuple(turns[-6:]))
+            caller_index = next(
+                (i for i in range(len(turns) - 1, -1, -1) if turns[i].speaker == "caller"),
+                None,
+            )
+            exchange = (
+                [turns[caller_index], *turns[caller_index + 1 :][-5:]]
+                if caller_index is not None
+                else turns[-6:]
+            )
+            session.moment = Moment(session.scene, session.activity, tuple(exchange))
 
     def _pause(self, session: Session, *, exclude_latest_caller: bool = False) -> None:
         if session.mode in {Mode.SAFETY, Mode.ENDED}:
@@ -372,7 +487,9 @@ class Controller:
         if not was_rehearsing:
             # A completion event for the old task may still be in transit. Give
             # the continuing coach activity a new identity without re-greeting.
-            self._install(session, session.activity, Mode.COACH)
+            self._install(
+                session, PAUSED_CONVERSATION if session.scene else OPEN_CONVERSATION, Mode.COACH
+            )
             return
         self._install(
             session,
@@ -451,8 +568,31 @@ class Controller:
                 or words.startswith("pause ")
                 or retracts_practice(event.utterance)
             ):
-                if session.mode == Mode.REHEARSAL or session.thinking:
+                if (
+                    session.mode == Mode.REHEARSAL
+                    or session.thinking
+                    or session.pending_actions
+                    or session.last_action
+                ):
                     self._pause(session, exclude_latest_caller=True)
+            elif (
+                session.mode == Mode.COACH
+                and not session.thinking
+                and session.speech_request_revision != session.user_revision
+            ):
+                context = session.snapshot("Caller replied to an offer", requested=True)
+                agreed, _ = check_consent(context, Operation.CREATE)
+                if practice_was_offered(context) and agreed:
+                    # Do not depend on the dialog model choosing to request an
+                    # action after an unambiguous agreement to its own offer.
+                    session.invalidate()
+                    session.speech_request_revision = session.user_revision
+                    self._queue(
+                        session,
+                        "The caller accepted the rehearsal offer. Create it from the existing conversation; infer fictional details without setup questions.",
+                        requested=True,
+                        hold=True,
+                    )
 
     def on_agent(self, call: guava.Call, event: AgentSpeechEvent) -> None:
         session = self.session(call)
@@ -476,6 +616,11 @@ class Controller:
         with session.lock:
             if session.mode in {Mode.SAFETY, Mode.ENDED}:
                 return None
+            if session.speech_request_revision == session.user_revision:
+                return guava.SuggestedAction(
+                    key=f"speech_handled_{session.epoch}",
+                    description="This caller's agreement is already being applied by the Expert. Follow its current activity. Do not ask more setup questions or start a duplicate change.",
+                )
             self._save_moment(session, exclude_latest_caller=True)
             session.invalidate()
             key = "adapt_" + uuid4().hex[:12]
@@ -485,8 +630,10 @@ class Controller:
             return guava.SuggestedAction(
                 key=key,
                 description=(
-                    "Adapt the activity to the caller's request. Before starting a new rehearsal "
-                    "or replay after a pause, confirm that is what they want unless they explicitly asked."
+                    "Adapt to the caller's request now. If they asked to practice or just agreed "
+                    "with yes, yeah, yep, or similar, execute without another confirmation. "
+                    "Infer the fictional name and character from existing context; do not "
+                    "ask setup questions. Ask permission only if no agreement/request exists."
                 ),
             )
 
@@ -495,14 +642,47 @@ class Controller:
         if session is None:
             return
         with session.lock:
+            if session.speech_request_revision == session.user_revision:
+                return
             pending = session.pending_actions.pop(key, None)
+            # Guava may reuse a suggested key after a later caller reply.
+            # Permit a fresh execution, but never a duplicate or a key that
+            # was invalidated by pause, end, or a newer action request.
+            previous = session.last_action
+            if (
+                pending is None
+                and previous is not None
+                and previous.key == key
+                and session.user_revision > previous.user_revision
+            ):
+                context = session.snapshot("Reuse an offered adaptation", requested=True)
+                clear_request, _ = check_consent(context, Operation.CREATE)
+                correction_or_replay = session.scene is not None and bool(
+                    re.search(
+                        r"\b(?:replay|retry|redo|revise|change|adjust)\b"
+                        r"|\btry .{0,60}(?:again|moment)\b"
+                        r"|\b(?:he|she|they|you) .{0,60}instead\b",
+                        normalized_speech(session.latest_caller),
+                    )
+                )
+                if clear_request or correction_or_replay:
+                    pending = previous.action
             if (
                 pending is None
                 or pending.epoch != session.epoch
                 or session.mode in {Mode.SAFETY, Mode.ENDED}
             ):
                 return
-            self._queue(session, pending.request, requested=True, hold=True)
+            session.invalidate()
+            current = PendingAction(session.epoch, pending.request, session.latest_caller)
+            session.last_action = ExecutedAction(key, current, session.user_revision)
+            self._queue(
+                session,
+                "Adapt to the caller's CURRENT request or agreement. Previously offered action: "
+                + pending.request,
+                requested=True,
+                hold=True,
+            )
 
     def _queue(
         self,
@@ -521,11 +701,8 @@ class Controller:
             activity_completed=activity_completed,
         )
         session.queued = Work(session.epoch, context)
-        if hold and session.mode == Mode.REHEARSAL:
-            self._install(session, PAUSED_CONVERSATION, Mode.COACH)
-            session.call.send_instruction(
-                "Acknowledge the requested adjustment briefly as the coach. Do not continue the old fictional response; an updated activity is being prepared."
-            )
+        if hold:
+            self._install(session, WAITING_FOR_PLAN, Mode.COACH)
         if not session.thinking:
             session.thinking = True
             self.scheduler.submit(lambda: self._work(session))
@@ -558,6 +735,12 @@ class Controller:
 
     def _apply(self, session: Session, context: Context, decision: Decision) -> None:
         op = decision.operation
+        logger.info(
+            "Planner decision: %s; fields=%d; caller_request=%s",
+            op.value,
+            len(decision.activity.fields) if decision.activity else 0,
+            context.user_requested,
+        )
         if op == Operation.SAFETY:
             self._safety(session)
             return
@@ -568,7 +751,9 @@ class Controller:
                 self._install(session, session.activity, session.mode)
             return
         if op == Operation.STAY:
-            if context.activity_completed:
+            if session.activity is WAITING_FOR_PLAN:
+                self._install(session, context.activity or OPEN_CONVERSATION, context.origin_mode)
+            elif context.activity_completed:
                 self._install(session, session.activity, session.mode)
             session.call.send_instruction(
                 decision.guidance
@@ -582,21 +767,26 @@ class Controller:
                 session.call.send_instruction(decision.guidance)
             return
 
-        consent = consent_is_current(context, decision)
+        consent, consent_reason = check_consent(context, op)
+        logger.info(
+            "Rehearsal gate: %s; reason=%s", "allowed" if consent else "blocked", consent_reason
+        )
         scene = decision.scene or (
             session.moment.scene if op == Operation.REPLAY and session.moment else session.scene
         )
         activity = decision.activity or (
             session.moment.activity
             if op == Operation.REPLAY and session.moment
-            else session.activity
+            else context.activity or OPEN_CONVERSATION
         )
         if scene is None or (op == Operation.REVISE and session.scene is None):
+            self._install(session, OPEN_CONVERSATION, Mode.COACH)
             session.call.send_instruction(
                 "Ask what scene the caller wants to create; do not invent a previous scene."
             )
             return
         if op == Operation.REPLAY and session.moment is None:
+            self._install(session, OPEN_CONVERSATION, Mode.COACH)
             session.call.send_instruction(
                 "There is no saved exchange yet. Ask which moment they would like to practice."
             )
@@ -613,13 +803,17 @@ class Controller:
         replay = session.moment if op in {Operation.REVISE, Operation.REPLAY} else None
         if op == Operation.CREATE:
             session.moment = None
+        elif replay:
+            # Keep the corrected definition even if the caller pauses before
+            # any new counterpart speech arrives.
+            session.moment = Moment(session.scene, activity, replay.exchange)
         session.scene_generation += 1
         self._install(
             session,
             activity,
             Mode.REHEARSAL,
             replay=replay,
-            announcement="I'm switching to the fictional counterpart. Say 'coach' to pause."
+            announcement=f"I'll play {scene.counterpart_name}, a fictional stand-in based on what you told me. Say 'coach' to pause."
             if op == Operation.CREATE
             else "Let's try that moment with your adjustment.",
         )

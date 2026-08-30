@@ -20,7 +20,7 @@ from guava.events import (
 from guava.testing import MockCall
 
 import main  # Sets telemetry policy before Guava loads.
-from adaptive import Controller, ThreadScheduler
+from adaptive import WAITING_FOR_PLAN, Controller, ThreadScheduler, check_consent
 from adaptive_models import (
     ActivityDefinition,
     ClarificationField,
@@ -29,7 +29,7 @@ from adaptive_models import (
     Operation,
     SceneDefinition,
 )
-from reasoner import Context
+from reasoner import Context, Turn
 
 
 def scene(behavior: str = "Politely changes the subject") -> SceneDefinition:
@@ -202,6 +202,149 @@ class AdaptiveTests(unittest.TestCase):
         self.jobs.run()
         self.assertEqual(Mode.COACH, self.session.mode)
 
+    def test_casual_affirmation_from_phone_call_starts_the_scene(self) -> None:
+        self.say("A fictional climbing friend has not returned my gear.")
+        self.request(
+            "Yeah, yeah, let's practice it.",
+            Decision(
+                operation=Operation.CREATE, scene=scene(), activity=ACTIVITY, consent_quote="Yeah"
+            ),
+        )
+        self.jobs.run()
+        self.assertEqual(Mode.REHEARSAL, self.session.mode)
+
+    def test_spoken_agreement_triggers_switch_without_model_requesting_an_action(self) -> None:
+        self.say("A friend has not returned my borrowed gear.")
+        self.controller.on_agent(
+            self.call, AgentSpeechEvent(utterance="Would you like to try a rehearsal now?")
+        )
+        self.planner.decisions.append(
+            Decision(operation=Operation.CREATE, scene=scene(), activity=ACTIVITY)
+        )
+        self.say("Yeah.")
+        self.jobs.run()
+        self.assertEqual(Mode.REHEARSAL, self.session.mode)
+        self.assertEqual(1, len(self.planner.contexts))
+        suggestion = self.controller.on_action_request(self.call, "Start the agreed rehearsal")
+        assert suggestion is not None
+        self.controller.on_action(self.call, suggestion.key)
+        self.jobs.run()
+        self.assertEqual(1, len(self.planner.contexts), "Late action duplicated the speech request")
+
+    def test_guava_can_reuse_an_offered_action_after_a_new_agreement(self) -> None:
+        self.say("Offer me a rehearsal about the borrowed gear, but don't start yet.")
+        suggestion = self.controller.on_action_request(self.call, "Offer a gear rehearsal")
+        assert suggestion is not None
+        self.planner.decisions.append(Decision(operation=Operation.STAY))
+        self.controller.on_action(self.call, suggestion.key)
+        self.jobs.run()
+        self.controller.on_agent(
+            self.call, AgentSpeechEvent(utterance="Would you like to try the rehearsal now?")
+        )
+        self.say("Yeah.")
+        self.planner.decisions.append(
+            Decision(operation=Operation.CREATE, scene=scene(), activity=ACTIVITY)
+        )
+        # Guava executes the SAME suggested key, without another action-request.
+        self.controller.on_action(self.call, suggestion.key)
+        self.jobs.run()
+        self.assertEqual(Mode.REHEARSAL, self.session.mode)
+        self.assertEqual("Yeah.", self.planner.contexts[-1].latest_caller)
+        self.controller.on_action(self.call, suggestion.key)
+        self.jobs.run()
+        self.assertEqual(2, len(self.planner.contexts), "Duplicate delivery planned twice")
+        self.say("Pause")
+        self.say("Yeah.")
+        self.controller.on_action(self.call, suggestion.key)
+        self.jobs.run()
+        self.assertEqual(Mode.COACH, self.session.mode, "A stale action resumed after pause")
+
+    def test_delayed_duplicate_after_ordinary_speech_does_not_plan_again(self) -> None:
+        self.say("Let's rehearse returning borrowed gear")
+        suggestion = self.controller.on_action_request(self.call, "Start rehearsal")
+        assert suggestion is not None
+        self.planner.decisions.append(
+            Decision(operation=Operation.CREATE, scene=scene(), activity=ACTIVITY)
+        )
+        self.controller.on_action(self.call, suggestion.key)
+        self.jobs.run()
+        self.say("Could I get my gear back on Friday?")
+        self.controller.on_action(self.call, suggestion.key)
+        self.assertFalse(self.jobs.jobs)
+        self.assertEqual(Mode.REHEARSAL, self.session.mode)
+
+    def test_switch_diagnostics_do_not_log_dialogue(self) -> None:
+        self.controller.on_agent(
+            self.call, AgentSpeechEvent(utterance="Would you like to practice now?")
+        )
+        self.request(
+            "Yeah, this is synthetic-private-dialogue",
+            Decision(
+                operation=Operation.CREATE, scene=scene(), activity=ACTIVITY, consent_quote="Yeah"
+            ),
+        )
+        with self.assertLogs("second_draft", level="INFO") as logs:
+            self.jobs.run()
+        output = " ".join(logs.output)
+        self.assertIn("current_agreement", output)
+        self.assertNotIn("synthetic-private-dialogue", output)
+
+    def test_spoken_agreement_variants_and_retractions(self) -> None:
+        cases = (
+            ("Yeah.", "yeah", True),
+            ("Yep, let's do it.", "Yep", True),
+            ("Yup", "yup", True),
+            ("Let’s do it!", "let's do it", True),
+            ("Yeah, that's fine.", "yeah thats fine", True),
+            ("Yeah, not yet.", "yeah", False),
+            ("Yeah, that's not what I want.", "yeah", False),
+            ("I don't want to practice", "practice", False),
+            ("Maybe later", "maybe later", False),
+        )
+        for utterance, quote, expected in cases:
+            with self.subTest(utterance=utterance):
+                context = Context(
+                    trigger="Practice request",
+                    origin_mode=Mode.COACH,
+                    user_requested=True,
+                    latest_caller=utterance,
+                    transcript=(
+                        Turn("agent", "Would you like to rehearse now?", Mode.COACH),
+                        Turn("caller", utterance, Mode.COACH),
+                    ),
+                    scene=None,
+                    activity=None,
+                    moment=None,
+                    proposal=None,
+                )
+                decision = Decision(
+                    operation=Operation.CREATE,
+                    scene=scene(),
+                    activity=ACTIVITY,
+                    consent_quote=quote,
+                )
+                self.assertEqual(expected, check_consent(context, decision.operation)[0])
+
+    def test_unrelated_backchannel_does_not_start_a_scene(self) -> None:
+        context = Context(
+            trigger="Possible practice",
+            origin_mode=Mode.COACH,
+            user_requested=True,
+            latest_caller="Yeah",
+            transcript=(
+                Turn("agent", "Is that how it felt?", Mode.COACH),
+                Turn("caller", "Yeah", Mode.COACH),
+            ),
+            scene=None,
+            activity=None,
+            moment=None,
+            proposal=None,
+        )
+        decision = Decision(
+            operation=Operation.CREATE, scene=scene(), activity=ACTIVITY, consent_quote="Yeah"
+        )
+        self.assertFalse(check_consent(context, decision.operation)[0])
+
     def test_replay_button_cannot_authorize_an_unrelated_new_scene(self) -> None:
         self.start_scene()
         self.exchange()
@@ -256,6 +399,14 @@ class AdaptiveTests(unittest.TestCase):
         self.jobs.run()
         self.assertEqual(Mode.COACH, self.session.mode)
         self.assertIsNone(self.session.scene)
+        self.assertIsNot(self.session.activity, WAITING_FOR_PLAN)
+
+    def test_stay_restores_the_activity_after_preparation(self) -> None:
+        original = self.session.activity
+        self.request("Keep helping me think this through", Decision(operation=Operation.STAY))
+        self.assertIs(self.session.activity, WAITING_FOR_PLAN)
+        self.jobs.run()
+        self.assertEqual(original, self.session.activity)
 
     def test_correction_keeps_scene_facts_and_the_relevant_exchange(self) -> None:
         self.start_scene()
@@ -268,6 +419,7 @@ class AdaptiveTests(unittest.TestCase):
         self.jobs.run()
         self.assertEqual(corrected, self.session.scene)
         self.assertEqual(Mode.REHEARSAL, self.session.mode)
+        self.assertEqual(ACTIVITY, self.session.activity)
         assert self.session.moment is not None
         self.assertIn("Friday", self.session.moment.exchange[-1].text)
         self.assertFalse(any("Change that" in turn.text for turn in self.session.moment.exchange))
@@ -286,6 +438,14 @@ class AdaptiveTests(unittest.TestCase):
         self.assertEqual(Mode.REHEARSAL, self.session.mode)
         self.assertEqual(moment, self.session.moment)
         self.assertEqual(ACTIVITY, self.session.activity)
+
+    def test_explicit_replay_does_not_depend_on_model_repeating_consent_words(self) -> None:
+        self.start_scene()
+        self.exchange()
+        self.say("Pause")
+        self.request("Try that exact moment again", Decision(operation=Operation.REPLAY))
+        self.jobs.run()
+        self.assertEqual(Mode.REHEARSAL, self.session.mode)
 
     def test_no_fixed_retry_limit(self) -> None:
         self.start_scene()
@@ -333,6 +493,43 @@ class AdaptiveTests(unittest.TestCase):
             all(turn.scene_generation != old_generation for turn in self.session.moment.exchange)
         )
         self.assertFalse(any("Friday" in turn.text for turn in self.session.moment.exchange))
+
+    def test_pause_after_corrected_reply_keeps_the_original_caller_cue(self) -> None:
+        self.start_scene()
+        self.exchange()
+        self.request("He jokes instead", Decision(operation=Operation.REVISE, scene=scene("Jokes")))
+        self.jobs.run()
+        self.controller.on_agent(
+            self.call, AgentSpeechEvent(utterance="The gear enjoys living here! Friday works.")
+        )
+        self.say("Pause")
+        assert self.session.moment is not None
+        self.assertEqual(
+            ["Could I get my gear back on Friday?"],
+            [turn.text for turn in self.session.moment.exchange if turn.speaker == "caller"],
+        )
+
+    def test_immediate_pause_after_revision_replays_the_corrected_character(self) -> None:
+        self.start_scene()
+        self.exchange()
+        corrected = scene("Uses humor")
+        self.request("He jokes instead", Decision(operation=Operation.REVISE, scene=corrected))
+        self.jobs.run()
+        self.say("Pause")
+        self.request("Replay that moment", Decision(operation=Operation.REPLAY))
+        self.jobs.run()
+        self.assertEqual(corrected, self.session.scene)
+
+    def test_many_speech_chunks_cannot_drop_the_saved_caller_cue(self) -> None:
+        self.start_scene()
+        self.say("Could I get my gear back on Friday?")
+        for index in range(8):
+            self.controller.on_agent(self.call, AgentSpeechEvent(utterance=f"Reply part {index}"))
+        self.say("Pause")
+        assert self.session.moment is not None
+        self.assertEqual("caller", self.session.moment.exchange[0].speaker)
+        self.assertIn("Friday", self.session.moment.exchange[0].text)
+        self.assertLessEqual(len(self.session.moment.exchange), 6)
 
     def test_new_request_replaces_inflight_decision_without_parallel_planning(self) -> None:
         self.start_scene()

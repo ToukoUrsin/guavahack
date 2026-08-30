@@ -28,8 +28,10 @@ class RecordingPlanner:
         self.decisions: list[Decision] = []
         self.errors: list[str] = []
         self.seconds: list[float] = []
+        self.contexts: list[Context] = []
 
     def decide(self, context: Context) -> Decision:
+        self.contexts.append(context)
         started = time.monotonic()
         try:
             result = self.planner.decide(context)
@@ -40,6 +42,28 @@ class RecordingPlanner:
             raise
         finally:
             self.seconds.append(round(time.monotonic() - started, 2))
+
+
+def natural_spoken_checks(agent_text: str) -> dict[str, bool]:
+    text = agent_text.casefold()
+    return {
+        "short_ai_therapy_intro": "ai therapy companion" in text
+        and "this isn't therapy" not in text,
+        "did_not_ask_for_character_name": not bool(
+            re.search(
+                r"what[^?.!]{0,45}(?:name|call your|call the)|name[^?.!]{0,30}(?:use|prefer|character)",
+                text,
+            )
+        ),
+        "did_not_ask_for_character_profile": not bool(
+            re.search(r"how[^?.!]{0,45}(?:portray|personality)|what[^?.!]{0,35}temperament", text)
+        ),
+        "did_not_ask_for_financial_inventory": not bool(
+            re.search(
+                r"what[^?.!]{0,55}(?:pay for|financial contribution|bills do|expenses do)", text
+            )
+        ),
+    }
 
 
 def spoken_checks(rehearsal: str, correction: str, coaching: str, replay: str) -> dict[str, bool]:
@@ -115,8 +139,15 @@ def run_conversation(scenario: str) -> int:
     agent.on_call_start(start)
     with agent.test() as wire:
 
-        def settle() -> None:
+        def settle(caller: str | None = None) -> None:
             wire.wait_for_turn()
+            # The test socket and Expert socket are separate. A ready signal
+            # does not prove the Expert has received this caller utterance.
+            deadline = time.monotonic() + 75
+            while caller is not None and (live is None or live.latest_caller != caller):
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Caller-event deadline")
+                time.sleep(0.05)
             # Readiness may precede the asynchronous Expert's new activity.
             if live and live.thinking:
                 deadline = time.monotonic() + 75
@@ -126,9 +157,24 @@ def run_conversation(scenario: str) -> int:
                     raise TimeoutError("Planner deadline")
                 wire.wait_for_turn()
 
-        def say(text: str) -> None:
+        def say(text: str, *, announcement: str = "", mode: Mode | None = None) -> None:
+            before = len(wire.get_transcript())
             wire.say(text)
-            settle()
+            settle(text)
+            if announcement:
+                # A switch is observed only when its spoken task announcement
+                # reaches the test socket, not when Python queues set_task().
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    if (
+                        live
+                        and not live.thinking
+                        and live.mode == mode
+                        and announcement in agent_segment(before).casefold()
+                    ):
+                        break
+                    time.sleep(0.1)
+                    wire.wait_for_turn()
 
         def agent_segment(since: int) -> str:
             return " ".join(
@@ -146,6 +192,30 @@ def run_conversation(scenario: str) -> int:
             checks["resource_spoken"] = bool(
                 re.search(r"988|nine eight eight", wire.get_transcript().casefold())
             )
+        elif scenario == "natural":
+            say(
+                "My partner is upset that I don't help much with housework. I work long hours and pay most household expenses, and I feel that contribution is overlooked. I want to practice discussing a fairer balance without another argument."
+            )
+            say("Could you offer me a rehearsal? Don't start yet, just ask me if I want to.")
+            checks["waited_for_agreement"] = live.mode == Mode.COACH
+            say("Yeah.", announcement="i'll play", mode=Mode.REHEARSAL)
+            checks["switched_after_first_agreement"] = live.mode == Mode.REHEARSAL
+            if live.mode != Mode.REHEARSAL:
+                say(
+                    "Please choose a fictional name and infer the character from what I already told you."
+                )
+            if live.mode != Mode.REHEARSAL:
+                say("Yeah.")
+            checks["casual_agreement_started_rehearsal"] = live.mode == Mode.REHEARSAL
+            checks["fictional_character_inferred"] = live.scene is not None and bool(
+                live.scene.counterpart_name
+            )
+            agent_text = " ".join(
+                line.removeprefix("[agent]: ")
+                for line in wire.get_transcript().splitlines()
+                if line.startswith("[agent]:")
+            ).casefold()
+            checks.update(natural_spoken_checks(agent_text))
         else:
             say(
                 "I lent my climbing friend gear last month and it hasn't come back. I just want to talk for now, not practice yet."
@@ -154,7 +224,9 @@ def run_conversation(scenario: str) -> int:
                 live.mode == Mode.COACH and live.scene is None
             )
             say(
-                "Yes, let's rehearse asking that fictional climbing friend to return my gear by Friday."
+                "Yes, let's rehearse asking that fictional climbing friend to return my gear by Friday.",
+                announcement="i'll play",
+                mode=Mode.REHEARSAL,
             )
             if live.mode != Mode.REHEARSAL:
                 say("Yes, start the rehearsal now. I agree to practice with the fictional friend.")
@@ -166,7 +238,9 @@ def run_conversation(scenario: str) -> int:
                 checks["rehearsal_continues"] = live.mode == Mode.REHEARSAL
                 before = len(wire.get_transcript())
                 say(
-                    "No, he would joke about it instead. Please change the fictional friend to use humor, and retry that same moment."
+                    "No, he would joke about it instead. Please change the fictional friend to use humor, and retry that same moment.",
+                    announcement="let's try that moment with your adjustment",
+                    mode=Mode.REHEARSAL,
                 )
                 correction_speech = agent_segment(before)
                 checks["correction_applied"] = live.scene is not None and bool(
@@ -179,7 +253,11 @@ def run_conversation(scenario: str) -> int:
                     live.mode == Mode.COACH and live.moment is not None
                 )
                 before = len(wire.get_transcript())
-                say("Try that exact moment again, keeping the correction about joking.")
+                say(
+                    "Try that exact moment again, keeping the correction about joking.",
+                    announcement="let's try that moment with your adjustment",
+                    mode=Mode.REHEARSAL,
+                )
                 if live.mode != Mode.REHEARSAL:
                     say("Yes, replay that saved moment now.")
                 replay_speech = agent_segment(before)
@@ -212,6 +290,12 @@ def run_conversation(scenario: str) -> int:
                 "passed": all(checks.values()),
                 "checks": checks,
                 "planner_operations": [d.operation.value for d in planner.decisions],
+                "planner_consent_quotes": [d.consent_quote for d in planner.decisions],
+                "planner_latest_callers": [c.latest_caller for c in planner.contexts],
+                "planned_fields": [
+                    [field.key for field in d.activity.fields] if d.activity else []
+                    for d in planner.decisions
+                ],
                 "planner_errors": planner.errors,
                 "planner_seconds": planner.seconds,
                 "scenes": [d.scene.model_dump() for d in planner.decisions if d.scene],
@@ -247,7 +331,7 @@ def run_bounded(scenario: str) -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("scenario", choices=["planner", "adaptive", "safety"])
+    parser.add_argument("scenario", choices=["planner", "adaptive", "natural", "safety"])
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     logging.disable(logging.CRITICAL)
